@@ -10,6 +10,7 @@ const { rateLimit } = require("express-rate-limit");
 const bcrypt = require("bcryptjs");
 const Store = require("./store");
 const BrowserLauncher = require("./launcher");
+const { assertSecurityConfig } = require("./security");
 
 const rootDir = path.resolve(__dirname, "..");
 const app = express();
@@ -21,7 +22,7 @@ const production = process.env.NODE_ENV === "production";
 
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
-app.use(helmet());
+app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json({ limit: "50kb" }));
 app.use(session({ store: new FileStore({ path: path.join(rootDir, "data", "sessions"), ttl: 60 * 60 * 12, retries: 1 }), name: "wa_hub_session", secret: process.env.SESSION_SECRET || "development-only-secret-change-this-now", resave: false, saveUninitialized: false, cookie: { httpOnly: true, secure: process.env.COOKIE_SECURE === "true" ? true : "auto", sameSite: "lax", maxAge: 1000 * 60 * 60 * 12 } }));
 
@@ -37,7 +38,7 @@ function remoteDesktopConfig() { return { enabled: Boolean(process.env.REMOTE_DE
 
 app.use(csrf);
 app.get("/api/session", (req, res) => { const user = req.session.userId && store.findUser(req.session.userId); res.json({ authenticated: Boolean(user && user.active), user: user && user.active ? store.publicUser(user) : null, csrfToken: req.session.csrfToken, appName: process.env.APP_NAME || "WA Client Hub" }); });
-app.post("/api/login", loginLimiter, async (req, res) => { const email = String(req.body.email || "").trim().toLowerCase(); const password = String(req.body.password || ""); const user = store.findUserByEmail(email); if (!user || !user.active || !(await bcrypt.compare(password, user.passwordHash))) return res.status(401).json({ error: "Email or password is incorrect" }); req.session.regenerate((error) => { if (error) return res.status(500).json({ error: "Could not start session" }); req.session.userId = user.id; req.session.csrfToken = crypto.randomBytes(24).toString("hex"); store.addAudit(user.id, "login"); res.json({ user: store.publicUser(user), csrfToken: req.session.csrfToken }); }); });
+app.post("/api/login", loginLimiter, async (req, res) => { const email = String(req.body.email || "").trim().toLowerCase(); const password = String(req.body.password || ""); const user = store.findUserByEmail(email); if (!user || !user.active || !(await bcrypt.compare(password, user.passwordHash))) { store.addAudit(user?.id || "anonymous", "login.failed", { email, ip: req.ip }); return res.status(401).json({ error: "Email or password is incorrect" }); } req.session.regenerate((error) => { if (error) return res.status(500).json({ error: "Could not start session" }); req.session.userId = user.id; req.session.csrfToken = crypto.randomBytes(24).toString("hex"); store.addAudit(user.id, "login", { ip: req.ip }); res.json({ user: store.publicUser(user), csrfToken: req.session.csrfToken }); }); });
 app.post("/api/logout", requireAuth, (req, res) => { const userId = req.user.id; req.session.destroy(() => { store.addAudit(userId, "logout"); res.json({ ok: true }); }); });
 
 app.get("/api/users", requireAuth, requireAdmin, (req, res) => res.json({ users: store.listUsers() }));
@@ -68,6 +69,6 @@ app.post("/api/accounts/:id/close", requireAuth, async (req, res) => { const acc
 app.get("/api/health", (req, res) => res.json({ ok: true, platform: process.platform, time: new Date().toISOString() }));
 app.use(express.static(path.join(rootDir, "public"), { extensions: ["html"] }));
 app.get("/{*path}", (req, res) => res.sendFile(path.join(rootDir, "public", "index.html")));
-async function start() { const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com"; const adminPassword = process.env.ADMIN_PASSWORD || "ChangeMeNow123!"; if (production && (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32)) throw new Error("SESSION_SECRET must be at least 32 characters in production"); await store.init({ adminEmail, adminPassword }); app.listen(port, "0.0.0.0", () => console.log(`WA Client Hub running at http://localhost:${port}`)); }
+async function start() { const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com"; const adminPassword = process.env.ADMIN_PASSWORD || "ChangeMeNow123!"; assertSecurityConfig(process.env); await store.init({ adminEmail, adminPassword }); app.listen(port, "0.0.0.0", () => console.log(`WA Client Hub running at http://localhost:${port}`)); }
 if (require.main === module) start().catch((error) => { console.error(error); process.exit(1); });
 module.exports = { app, store, launcher, start };
