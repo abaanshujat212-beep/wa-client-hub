@@ -1,0 +1,78 @@
+name: wa-guacamole
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: wa-guac-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: guacamole_db
+      POSTGRES_USER: guacamole_user
+      POSTGRES_PASSWORD_FILE: /run/secrets/guac_db_password
+    secrets:
+      - guac_db_password
+    volumes:
+      - guac_postgres_data:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U guacamole_user -d guacamole_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - guac_internal
+    security_opt:
+      - no-new-privileges:true
+
+  guacd:
+    image: guacamole/guacd:1.6.0
+    container_name: wa-guacd
+    restart: unless-stopped
+    environment:
+      LOG_LEVEL: info
+    networks:
+      - guac_internal
+    security_opt:
+      - no-new-privileges:true
+
+  guacamole:
+    image: guacamole/guacamole:1.6.0
+    container_name: wa-guacamole
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      guacd:
+        condition: service_started
+    environment:
+      GUACD_HOSTNAME: guacd
+      GUACD_PORT: "4822"
+      POSTGRESQL_ENABLED: "true"
+      POSTGRESQL_HOSTNAME: postgres
+      POSTGRESQL_PORT: "5432"
+      POSTGRESQL_DATABASE: guacamole_db
+      POSTGRESQL_USER: guacamole_user
+      POSTGRESQL_PASSWORD_FILE: /run/secrets/guac_db_password
+      WEBAPP_CONTEXT: ROOT
+      REMOTE_IP_VALVE_ENABLED: "true"
+    secrets:
+      - guac_db_password
+    ports:
+      - "127.0.0.1:8085:8080"
+    networks:
+      - guac_internal
+    security_opt:
+      - no-new-privileges:true
+
+secrets:
+  guac_db_password:
+    file: ./secrets/guac_db_password.txt
+
+volumes:
+  guac_postgres_data:
+    name: wa_guacamole_postgres_data
+
+networks:
+  guac_internal:
+    name: wa_guacamole_internal
+    driver: bridge

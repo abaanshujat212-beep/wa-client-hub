@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0c1713">
+  <title>WA Client Hub</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <main id="loginView" class="login-shell hidden">
+    <section class="login-card">
+      <div class="brand-mark">W</div>
+      <p class="eyebrow">Private communication workspace</p>
+      <h1>Welcome back</h1>
+      <p class="muted">Sign in to access your WhatsApp workspace.</p>
+      <form id="loginForm" class="form-stack">
+        <label>Email<input name="email" type="email" autocomplete="username" required></label>
+        <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+        <button class="button primary" type="submit">Sign in</button>
+      </form>
+      <p class="security-note">Protected session · Separate browser profile per account</p>
+    </section>
+  </main>
+
+  <div id="appView" class="app-shell hidden">
+    <aside class="sidebar">
+      <a class="brand" href="#"><span class="brand-mark small">W</span><span id="brandName">WA Client Hub</span></a>
+      <nav>
+        <button class="nav-item active" data-view="accounts"><span>◫</span> Workspaces</button>
+        <button class="nav-item admin-only" data-view="clients"><span>◎</span> Clients</button>
+        <button class="nav-item" data-view="guide"><span>?</span> Calling setup</button>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="user-chip"><span id="userInitial">U</span><div><strong id="userName">User</strong><small id="userRole">Client</small></div></div>
+        <button id="logoutButton" class="link-button">Sign out</button>
+      </div>
+    </aside>
+
+    <section class="content">
+      <header class="topbar">
+        <button id="menuButton" class="icon-button menu-button" aria-label="Open menu">☰</button>
+        <div><p class="eyebrow">Workspace control</p><h2 id="pageTitle">WhatsApp workspaces</h2></div>
+        <div class="status-pill"><span></span> System online</div>
+      </header>
+
+      <section id="accountsView" class="view">
+        <div class="hero-card">
+          <div><span class="kicker">Isolated sessions</span><h3>Messages and calls, kept separate.</h3><p>Each workspace opens WhatsApp Web in its own protected Chrome profile.</p></div>
+          <button id="showAccountForm" class="button light">+ Add workspace</button>
+        </div>
+        <form id="accountForm" class="inline-form hidden">
+          <label>Workspace name<input name="label" placeholder="Sales WhatsApp" required></label>
+          <label>Phone number<input name="phone" placeholder="+92 300 0000000" required></label>
+          <label class="admin-only">Client<select name="ownerId" id="ownerSelect"></select></label>
+          <button class="button primary" type="submit">Create</button>
+        </form>
+        <div class="section-heading"><div><h3>Your workspaces</h3><p class="muted">Launch one account at a time during this Windows 11 test.</p></div><button id="refreshAccounts" class="icon-button" aria-label="Refresh">↻</button></div>
+        <div id="accountsGrid" class="card-grid"></div>
+      </section>
+
+      <section id="clientsView" class="view hidden admin-only">
+        <div class="section-heading"><div><p class="eyebrow">Administration</p><h3>Client access</h3></div><button id="showClientForm" class="button primary">+ New client</button></div>
+        <form id="clientForm" class="inline-form hidden">
+          <label>Client name<input name="name" required></label>
+          <label>Email<input name="email" type="email" required></label>
+          <label>Temporary password<input name="password" type="password" minlength="10" required></label>
+          <button class="button primary" type="submit">Create client</button>
+        </form>
+        <div id="clientsList" class="table-card"></div>
+      </section>
+
+      <section id="guideView" class="view hidden">
+        <div class="guide-layout">
+          <article class="guide-card"><span class="step">01</span><h3>Allow microphone</h3><p>When WhatsApp asks, allow microphone and notifications in Chrome or Edge.</p></article>
+          <article class="guide-card"><span class="step">02</span><h3>Use Remote Desktop audio</h3><p>In Windows Remote Desktop, set Remote audio recording to “Record from this computer.”</p></article>
+          <article class="guide-card"><span class="step">03</span><h3>Keep one active session</h3><p>Windows 11 supports one reliable interactive remote session. Use a separate VM per simultaneous client in production.</p></article>
+        </div>
+        <div class="notice"><strong>Cloudflare Tunnel exposes this dashboard only.</strong><p>For calling, the user must also connect to the Windows desktop with audio/microphone redirection. The public dashboard cannot stream the server’s Chrome window by itself.</p></div>
+      </section>
+    </section>
+  </div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
