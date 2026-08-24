@@ -9,12 +9,13 @@ const DEFAULT_PLANS = [
   { id: "business", name: "Business", workspaceLimit: 3, numberLimit: 10, userLimit: 10 },
   { id: "dedicated", name: "Dedicated", workspaceLimit: 999, numberLimit: 999, userLimit: 999, custom: true }
 ];
+const INVITE_TTL_HOURS = 72;
 
 class Store {
   constructor(rootDir) {
     this.dataDir = path.join(rootDir, "data");
     this.file = path.join(this.dataDir, "store.json");
-    this.data = { users: [], workspaces: [], workspaceMembers: [], accounts: [], plans: DEFAULT_PLANS, audit: [] };
+    this.data = { users: [], workspaces: [], workspaceMembers: [], accounts: [], plans: DEFAULT_PLANS, invites: [], audit: [] };
   }
 
   async init({ adminEmail, adminPassword }) {
@@ -28,13 +29,9 @@ class Store {
   }
 
   async migrate() {
-    this.data.users ||= [];
-    this.data.accounts ||= [];
-    this.data.audit ||= [];
+    this.data.users ||= []; this.data.accounts ||= []; this.data.audit ||= []; this.data.invites ||= [];
     this.data.plans = DEFAULT_PLANS.map((plan) => ({ ...plan, ...(this.data.plans || []).find((row) => row.id === plan.id) }));
-    this.data.workspaces ||= [];
-    this.data.workspaceMembers ||= [];
-
+    this.data.workspaces ||= []; this.data.workspaceMembers ||= [];
     let changed = false;
     for (const account of this.data.accounts) {
       if (!account.workspaceId && account.ownerId) {
@@ -44,128 +41,52 @@ class Store {
           this.data.workspaces.push(workspace);
           this.data.workspaceMembers.push({ id: crypto.randomUUID(), workspaceId: workspace.id, userId: account.ownerId, role: "owner", createdAt: workspace.createdAt });
         }
-        account.workspaceId = workspace.id;
-        changed = true;
+        account.workspaceId = workspace.id; changed = true;
       }
     }
-
     for (const workspace of this.data.workspaces) {
       if (!this.data.workspaceMembers.some((member) => member.workspaceId === workspace.id && member.userId === workspace.ownerId)) {
-        this.data.workspaceMembers.push({ id: crypto.randomUUID(), workspaceId: workspace.id, userId: workspace.ownerId, role: "owner", createdAt: workspace.createdAt || new Date().toISOString() });
-        changed = true;
+        this.data.workspaceMembers.push({ id: crypto.randomUUID(), workspaceId: workspace.id, userId: workspace.ownerId, role: "owner", createdAt: workspace.createdAt || new Date().toISOString() }); changed = true;
       }
     }
     if (changed) this.persist();
   }
-
-  persist() {
-    const tempFile = `${this.file}.tmp`;
-    fs.writeFileSync(tempFile, JSON.stringify(this.data, null, 2), { mode: 0o600 });
-    fs.renameSync(tempFile, this.file);
-  }
-
+  persist() { const tempFile = `${this.file}.tmp`; fs.writeFileSync(tempFile, JSON.stringify(this.data, null, 2), { mode: 0o600 }); fs.renameSync(tempFile, this.file); }
   publicUser(user) { const { passwordHash, ...safe } = user; return safe; }
+  publicInvite(invite) { const { tokenHash, ...safe } = invite; return safe; }
   findUserByEmail(email) { return this.data.users.find((user) => user.email === String(email).toLowerCase()); }
   findUser(id) { return this.data.users.find((user) => user.id === id); }
   listUsers() { return this.data.users.map((user) => this.publicUser(user)); }
-
-  async createClient({ name, email, password }) {
-    if (this.findUserByEmail(email)) throw new Error("Email already exists");
-    const user = { id: crypto.randomUUID(), name: name.trim(), email: email.trim().toLowerCase(), passwordHash: await bcrypt.hash(password, 12), role: "client", active: true, createdAt: new Date().toISOString() };
-    this.data.users.push(user); this.persist(); return this.publicUser(user);
-  }
-
-  async changePassword(id, currentPassword, newPassword) {
-    const user = this.findUser(id); if (!user || !(await bcrypt.compare(currentPassword, user.passwordHash))) return false;
-    user.passwordHash = await bcrypt.hash(newPassword, 12); this.persist(); return true;
-  }
-  async resetPassword(id, newPassword) {
-    const user = this.findUser(id); if (!user || user.role === "admin") return null;
-    user.passwordHash = await bcrypt.hash(newPassword, 12); this.persist(); return this.publicUser(user);
-  }
+  async createClient({ name, email, password }) { if (this.findUserByEmail(email)) throw new Error("Email already exists"); const user = { id: crypto.randomUUID(), name: name.trim(), email: email.trim().toLowerCase(), passwordHash: await bcrypt.hash(password, 12), role: "client", active: true, createdAt: new Date().toISOString() }; this.data.users.push(user); this.persist(); return this.publicUser(user); }
+  async changePassword(id, currentPassword, newPassword) { const user = this.findUser(id); if (!user || !(await bcrypt.compare(currentPassword, user.passwordHash))) return false; user.passwordHash = await bcrypt.hash(newPassword, 12); this.persist(); return true; }
+  async resetPassword(id, newPassword) { const user = this.findUser(id); if (!user || user.role === "admin") return null; user.passwordHash = await bcrypt.hash(newPassword, 12); this.persist(); return this.publicUser(user); }
   setUserActive(id, active) { const user = this.findUser(id); if (!user || user.role === "admin") return null; user.active = Boolean(active); this.persist(); return this.publicUser(user); }
-
   getPlan(planId) { return this.data.plans.find((plan) => plan.id === planId) || this.data.plans[0]; }
-  workspaceUsage(workspaceId) {
-    return { users: this.data.workspaceMembers.filter((row) => row.workspaceId === workspaceId).length, numbers: this.data.accounts.filter((row) => row.workspaceId === workspaceId).length };
-  }
-  decorateWorkspace(workspace) {
-    const owner = this.findUser(workspace.ownerId);
-    const plan = this.getPlan(workspace.planId);
-    return { ...workspace, ownerName: owner?.name || "Unknown", plan, usage: this.workspaceUsage(workspace.id) };
-  }
-  workspaceRole(user, workspaceId) {
-    if (user.role === "admin") return "admin";
-    return this.data.workspaceMembers.find((member) => member.workspaceId === workspaceId && member.userId === user.id)?.role || null;
-  }
+  workspaceUsage(workspaceId) { return { users: this.data.workspaceMembers.filter((row) => row.workspaceId === workspaceId).length, numbers: this.data.accounts.filter((row) => row.workspaceId === workspaceId).length }; }
+  decorateWorkspace(workspace) { const owner = this.findUser(workspace.ownerId); const plan = this.getPlan(workspace.planId); return { ...workspace, ownerName: owner?.name || "Unknown", plan, usage: this.workspaceUsage(workspace.id) }; }
+  workspaceRole(user, workspaceId) { if (user.role === "admin") return "admin"; return this.data.workspaceMembers.find((member) => member.workspaceId === workspaceId && member.userId === user.id)?.role || null; }
   canViewWorkspace(user, workspaceId) { return user.role === "admin" || Boolean(this.workspaceRole(user, workspaceId)); }
   canManageWorkspace(user, workspaceId) { const role = this.workspaceRole(user, workspaceId); return user.role === "admin" || role === "owner" || role === "admin"; }
   canUseWorkspace(user, workspaceId) { return this.canViewWorkspace(user, workspaceId); }
-
-  listWorkspaces(user) {
-    const rows = user.role === "admin" ? this.data.workspaces : this.data.workspaces.filter((workspace) => this.canViewWorkspace(user, workspace.id));
-    return rows.map((workspace) => this.decorateWorkspace(workspace));
-  }
+  listWorkspaces(user) { const rows = user.role === "admin" ? this.data.workspaces : this.data.workspaces.filter((workspace) => this.canViewWorkspace(user, workspace.id)); return rows.map((workspace) => this.decorateWorkspace(workspace)); }
   findWorkspace(id) { return this.data.workspaces.find((workspace) => workspace.id === id); }
-  createWorkspace({ ownerId, name, planId = "team" }) {
-    const owner = this.findUser(ownerId); if (!owner || owner.role !== "client") throw new Error("Valid client is required");
-    const plan = this.getPlan(planId); if (!plan) throw new Error("Valid plan is required");
-    const ownedCount = this.data.workspaces.filter((workspace) => workspace.ownerId === ownerId).length;
-    if (ownedCount >= plan.workspaceLimit) throw new Error(`Plan limit reached: ${plan.name} allows ${plan.workspaceLimit} workspace(s)`);
-    const workspace = { id: crypto.randomUUID(), ownerId, name: name.trim(), planId: plan.id, status: "active", createdAt: new Date().toISOString() };
-    this.data.workspaces.push(workspace);
-    this.data.workspaceMembers.push({ id: crypto.randomUUID(), workspaceId: workspace.id, userId: ownerId, role: "owner", createdAt: workspace.createdAt });
-    this.persist(); return this.decorateWorkspace(workspace);
-  }
-  updateWorkspace(id, updates) {
-    const workspace = this.findWorkspace(id); if (!workspace) return null;
-    if (updates.name !== undefined) workspace.name = String(updates.name).trim();
-    if (updates.planId !== undefined) workspace.planId = this.getPlan(updates.planId).id;
-    if (updates.status !== undefined) workspace.status = String(updates.status);
-    this.persist(); return this.decorateWorkspace(workspace);
-  }
-
-  listWorkspaceMembers(workspaceId) {
-    return this.data.workspaceMembers.filter((member) => member.workspaceId === workspaceId).map((member) => ({ ...member, user: this.publicUser(this.findUser(member.userId) || {}) }));
-  }
-  addWorkspaceMember({ workspaceId, userId, role = "agent" }) {
-    const workspace = this.findWorkspace(workspaceId); const user = this.findUser(userId);
-    if (!workspace || !user || !user.active) throw new Error("Valid workspace and active user are required");
-    if (this.data.workspaceMembers.some((member) => member.workspaceId === workspaceId && member.userId === userId)) throw new Error("User is already a workspace member");
-    const plan = this.getPlan(workspace.planId); const usage = this.workspaceUsage(workspaceId);
-    if (usage.users >= plan.userLimit) throw new Error(`Plan limit reached: ${plan.name} allows ${plan.userLimit} user(s)`);
-    const member = { id: crypto.randomUUID(), workspaceId, userId, role, createdAt: new Date().toISOString() };
-    this.data.workspaceMembers.push(member); this.persist(); return { ...member, user: this.publicUser(user) };
-  }
-  updateWorkspaceMember({ workspaceId, userId, role }) {
-    const member = this.data.workspaceMembers.find((row) => row.workspaceId === workspaceId && row.userId === userId); if (!member) return null;
-    member.role = role; this.persist(); return member;
-  }
-  removeWorkspaceMember({ workspaceId, userId }) {
-    const index = this.data.workspaceMembers.findIndex((row) => row.workspaceId === workspaceId && row.userId === userId); if (index === -1) return null;
-    const [member] = this.data.workspaceMembers.splice(index, 1); this.persist(); return member;
-  }
-
-  listAccounts(user, workspaceId) {
-    let rows = this.data.accounts;
-    if (workspaceId) rows = rows.filter((account) => account.workspaceId === workspaceId);
-    rows = user.role === "admin" ? rows : rows.filter((account) => this.canViewWorkspace(user, account.workspaceId));
-    return rows.map((account) => ({ ...account, ownerName: this.findUser(account.ownerId)?.name || "Unknown", workspaceName: this.findWorkspace(account.workspaceId)?.name || "Workspace" }));
-  }
+  createWorkspace({ ownerId, name, planId = "team" }) { const owner = this.findUser(ownerId); if (!owner || owner.role !== "client") throw new Error("Valid client is required"); const plan = this.getPlan(planId); const ownedCount = this.data.workspaces.filter((workspace) => workspace.ownerId === ownerId).length; if (ownedCount >= plan.workspaceLimit) throw new Error(`Plan limit reached: ${plan.name} allows ${plan.workspaceLimit} workspace(s)`); const workspace = { id: crypto.randomUUID(), ownerId, name: name.trim(), planId: plan.id, status: "active", createdAt: new Date().toISOString() }; this.data.workspaces.push(workspace); this.data.workspaceMembers.push({ id: crypto.randomUUID(), workspaceId: workspace.id, userId: ownerId, role: "owner", createdAt: workspace.createdAt }); this.persist(); return this.decorateWorkspace(workspace); }
+  updateWorkspace(id, updates) { const workspace = this.findWorkspace(id); if (!workspace) return null; if (updates.name !== undefined) workspace.name = String(updates.name).trim(); if (updates.planId !== undefined) workspace.planId = this.getPlan(updates.planId).id; if (updates.status !== undefined) workspace.status = String(updates.status); this.persist(); return this.decorateWorkspace(workspace); }
+  listWorkspaceMembers(workspaceId) { return this.data.workspaceMembers.filter((member) => member.workspaceId === workspaceId).map((member) => ({ ...member, user: this.publicUser(this.findUser(member.userId) || {}) })); }
+  addWorkspaceMember({ workspaceId, userId, role = "agent" }) { const workspace = this.findWorkspace(workspaceId); const user = this.findUser(userId); if (!workspace || !user || !user.active) throw new Error("Valid workspace and active user are required"); if (this.data.workspaceMembers.some((member) => member.workspaceId === workspaceId && member.userId === userId)) throw new Error("User is already a workspace member"); const plan = this.getPlan(workspace.planId); const usage = this.workspaceUsage(workspaceId); if (usage.users >= plan.userLimit) throw new Error(`Plan limit reached: ${plan.name} allows ${plan.userLimit} user(s)`); const member = { id: crypto.randomUUID(), workspaceId, userId, role, createdAt: new Date().toISOString() }; this.data.workspaceMembers.push(member); this.persist(); return { ...member, user: this.publicUser(user) }; }
+  updateWorkspaceMember({ workspaceId, userId, role }) { const member = this.data.workspaceMembers.find((row) => row.workspaceId === workspaceId && row.userId === userId); if (!member) return null; member.role = role; this.persist(); return member; }
+  removeWorkspaceMember({ workspaceId, userId }) { const index = this.data.workspaceMembers.findIndex((row) => row.workspaceId === workspaceId && row.userId === userId); if (index === -1) return null; const [member] = this.data.workspaceMembers.splice(index, 1); this.persist(); return member; }
+  createInvite({ workspaceId, email, name, role = "agent", createdBy }) { const workspace = this.findWorkspace(workspaceId); if (!workspace) throw new Error("Valid workspace is required"); const token = crypto.randomBytes(32).toString("base64url"); const invite = { id: crypto.randomUUID(), workspaceId, email: email.trim().toLowerCase(), name: name.trim(), role, tokenHash: crypto.createHash("sha256").update(token).digest("hex"), status: "pending", createdBy, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + INVITE_TTL_HOURS * 60 * 60 * 1000).toISOString(), acceptedAt: null }; this.data.invites.push(invite); this.persist(); return { invite: this.publicInvite(invite), token }; }
+  findInviteByToken(token) { const hash = crypto.createHash("sha256").update(String(token || "")).digest("hex"); return this.data.invites.find((invite) => invite.tokenHash === hash); }
+  listInvites(workspaceId) { return this.data.invites.filter((invite) => !workspaceId || invite.workspaceId === workspaceId).map((invite) => this.publicInvite(invite)); }
+  async acceptInvite({ token, password, name }) { const invite = this.findInviteByToken(token); if (!invite || invite.status !== "pending") throw new Error("Invite is invalid or already used"); if (new Date(invite.expiresAt).getTime() < Date.now()) { invite.status = "expired"; this.persist(); throw new Error("Invite has expired"); } let user = this.findUserByEmail(invite.email); if (!user) { user = { id: crypto.randomUUID(), name: (name || invite.name).trim(), email: invite.email, passwordHash: await bcrypt.hash(password, 12), role: "client", active: true, createdAt: new Date().toISOString() }; this.data.users.push(user); } else { user.passwordHash = await bcrypt.hash(password, 12); user.active = true; } if (!this.data.workspaceMembers.some((m) => m.workspaceId === invite.workspaceId && m.userId === user.id)) this.addWorkspaceMember({ workspaceId: invite.workspaceId, userId: user.id, role: invite.role }); invite.status = "accepted"; invite.acceptedAt = new Date().toISOString(); this.persist(); return this.publicUser(user); }
+  listAccounts(user, workspaceId) { let rows = this.data.accounts; if (workspaceId) rows = rows.filter((account) => account.workspaceId === workspaceId); rows = user.role === "admin" ? rows : rows.filter((account) => this.canViewWorkspace(user, account.workspaceId)); return rows.map((account) => ({ ...account, ownerName: this.findUser(account.ownerId)?.name || "Unknown", workspaceName: this.findWorkspace(account.workspaceId)?.name || "Workspace" })); }
   findAccount(id) { return this.data.accounts.find((account) => account.id === id); }
-  createAccount({ ownerId, workspaceId, label, phone }) {
-    const workspace = this.findWorkspace(workspaceId); if (!workspace) throw new Error("Valid workspace is required");
-    const plan = this.getPlan(workspace.planId); const usage = this.workspaceUsage(workspaceId);
-    if (usage.numbers >= plan.numberLimit) throw new Error(`Plan limit reached: ${plan.name} allows ${plan.numberLimit} WhatsApp number(s)`);
-    const account = { id: crypto.randomUUID(), ownerId: ownerId || workspace.ownerId, workspaceId, label: label.trim(), phone: phone.trim(), createdAt: new Date().toISOString(), lastLaunchedAt: null };
-    this.data.accounts.push(account); this.persist(); return account;
-  }
+  createAccount({ ownerId, workspaceId, label, phone }) { const workspace = this.findWorkspace(workspaceId); if (!workspace) throw new Error("Valid workspace is required"); const plan = this.getPlan(workspace.planId); const usage = this.workspaceUsage(workspaceId); if (usage.numbers >= plan.numberLimit) throw new Error(`Plan limit reached: ${plan.name} allows ${plan.numberLimit} WhatsApp number(s)`); const account = { id: crypto.randomUUID(), ownerId: ownerId || workspace.ownerId, workspaceId, label: label.trim(), phone: phone.trim(), createdAt: new Date().toISOString(), lastLaunchedAt: null }; this.data.accounts.push(account); this.persist(); return account; }
   deleteAccount(id) { const index = this.data.accounts.findIndex((account) => account.id === id); if (index === -1) return null; const account = this.data.accounts[index]; this.data.accounts.splice(index, 1); this.persist(); return account; }
   touchAccount(id) { const account = this.findAccount(id); if (!account) return null; account.lastLaunchedAt = new Date().toISOString(); this.persist(); return account; }
-
   listAudit(limit = 100) { return this.data.audit.slice(0, Math.min(Number(limit) || 100, 500)).map((row) => ({ ...row, userName: this.findUser(row.userId)?.name || "Unknown" })); }
   addAudit(userId, action, details = {}) { this.data.audit.unshift({ id: crypto.randomUUID(), userId, action, details, createdAt: new Date().toISOString() }); this.data.audit = this.data.audit.slice(0, 500); this.persist(); }
 }
-
 module.exports = Store;
 module.exports.DEFAULT_PLANS = DEFAULT_PLANS;
