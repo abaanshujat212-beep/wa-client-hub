@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Accept invite - WA Client Hub</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <main class="login-shell">
+    <section class="login-card">
+      <div class="brand-mark">W</div>
+      <p class="eyebrow">Workspace invite</p>
+      <h1>Join workspace</h1>
+      <p class="muted">Set your password to accept the invite.</p>
+      <form id="inviteForm" class="form-stack">
+        <label>Name<input name="name" autocomplete="name" required></label>
+        <label>Password<input name="password" type="password" minlength="10" autocomplete="new-password" required></label>
+        <button class="button primary" type="submit">Accept invite</button>
+      </form>
+      <p class="security-note">Password must be at least 10 characters.</p>
+    </section>
+  </main>
+  <script>
+    const $ = (selector) => document.querySelector(selector);
+    function toast(message) { const el = $("#toast"); el.textContent = message; el.classList.add("show"); setTimeout(() => el.classList.remove("show"), 3500); }
+    const token = new URLSearchParams(location.search).get("token") || "";
+    if (!token) toast("Invite token is missing");
+    $("#inviteForm").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const data = Object.fromEntries(new FormData(event.currentTarget));
+      try {
+        const response = await fetch("/api/invites/accept", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...data, token }) });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.error || "Could not accept invite");
+        toast("Invite accepted. You can sign in now.");
+        setTimeout(() => location.href = "/", 1200);
+      } catch (error) { toast(error.message); }
+    });
+  </script>
+</body>
+</html>
