@@ -64,10 +64,18 @@
           <label>Workspace<select name="workspaceId" id="accountWorkspaceSelect"></select></label>
           <button class="button primary" type="submit">Add number</button>
         </form>
-        <div class="section-heading"><div><h3>Your workspaces</h3><p class="muted">Open a workspace to manage its WhatsApp numbers.</p></div><button id="refreshAccounts" class="icon-button" aria-label="Refresh">↻</button></div>
+        <form id="memberForm" class="inline-form hidden">
+          <label>Workspace<select name="workspaceId" id="memberWorkspaceSelect"></select></label>
+          <label>User<select name="userId" id="memberUserSelect"></select></label>
+          <label>Role<select name="role"><option value="agent">Agent</option><option value="viewer">Viewer</option><option value="admin">Workspace admin</option></select></label>
+          <button class="button primary" type="submit">Add member</button>
+        </form>
+        <div class="section-heading"><div><h3>Your workspaces</h3><p class="muted">Open a workspace to manage its WhatsApp numbers and users.</p></div><button id="refreshAccounts" class="icon-button" aria-label="Refresh">↻</button></div>
         <div id="workspacesGrid" class="card-grid"></div>
         <div class="section-heading"><div><h3>WhatsApp numbers</h3><p class="muted">Each number has its own isolated Chrome/Edge profile.</p></div><button id="showAccountForm" class="button secondary">+ Add number</button></div>
         <div id="accountsGrid" class="card-grid"></div>
+        <div class="section-heading"><div><h3>Workspace members</h3><p class="muted">Add users to a workspace according to plan limits.</p></div><button id="showMemberForm" class="button secondary admin-only">+ Add member</button></div>
+        <div id="membersList" class="table-card"></div>
       </section>
 
       <section id="clientsView" class="view hidden admin-only">

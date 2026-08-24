@@ -1,119 +1,31 @@
-const state = { csrf: "", user: null, users: [], workspaces: [], accounts: [], plans: [] };
+const state = { csrf: "", user: null, users: [], workspaces: [], accounts: [], plans: [], membersByWorkspace: {} };
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 
-async function api(url, options = {}) {
-  const response = await fetch(url, { ...options, headers: { "content-type": "application/json", "x-csrf-token": state.csrf, ...(options.headers || {}) } });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || "Request failed");
-  return body;
-}
+async function api(url, options = {}) { const response = await fetch(url, { ...options, headers: { "content-type": "application/json", "x-csrf-token": state.csrf, ...(options.headers || {}) } }); const body = await response.json().catch(() => ({})); if (!response.ok) throw new Error(body.error || "Request failed"); return body; }
 function toast(message) { const el = $("#toast"); el.textContent = message; el.classList.add("show"); setTimeout(() => el.classList.remove("show"), 3000); }
 function showAuth(authenticated) { $("#loginView").classList.toggle("hidden", authenticated); $("#appView").classList.toggle("hidden", !authenticated); }
 function escapeHtml(value) { return String(value ?? "").replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]); }
 function formatDate(value) { return value ? new Intl.DateTimeFormat("en", { dateStyle: "medium" }).format(new Date(value)) : "-"; }
+function applyUser() { const admin = state.user.role === "admin"; $("#userName").textContent = state.user.name; $("#userRole").textContent = state.user.role; $("#userInitial").textContent = state.user.name.charAt(0).toUpperCase(); $$(".admin-only").forEach((el) => el.classList.toggle("hidden", !admin)); }
+function switchView(name) { $$(".view").forEach((view) => view.classList.add("hidden")); $(`#${name}View`).classList.remove("hidden"); $$(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.view === name)); const titles = { accounts: "WhatsApp workspaces", clients: "Client access", audit: "Audit log", guide: "Calling setup" }; $("#pageTitle").textContent = titles[name]; $(".sidebar").classList.remove("open"); }
 
-function applyUser() {
-  const admin = state.user.role === "admin";
-  $("#userName").textContent = state.user.name;
-  $("#userRole").textContent = state.user.role;
-  $("#userInitial").textContent = state.user.name.charAt(0).toUpperCase();
-  $$(".admin-only").forEach((el) => el.classList.toggle("hidden", !admin));
-}
-function switchView(name) {
-  $$(".view").forEach((view) => view.classList.add("hidden"));
-  $(`#${name}View`).classList.remove("hidden");
-  $$(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.view === name));
-  const titles = { accounts: "WhatsApp workspaces", clients: "Client access", audit: "Audit log", guide: "Calling setup" };
-  $("#pageTitle").textContent = titles[name];
-  $(".sidebar").classList.remove("open");
-}
-
-async function loadPlans() {
-  const body = await api("/api/plans");
-  state.plans = body.plans || [];
-  const html = state.plans.map((plan) => `<option value="${plan.id}">${escapeHtml(plan.name)} (${plan.numberLimit} numbers / ${plan.userLimit} users)</option>`).join("");
-  $("#planSelect").innerHTML = html;
-}
-async function loadUsers() {
-  if (state.user.role !== "admin") return;
-  const body = await api("/api/users");
-  state.users = body.users;
-  const clients = state.users.filter((user) => user.role === "client");
-  const options = clients.map((user) => `<option value="${user.id}">${escapeHtml(user.name)}</option>`).join("");
-  $("#workspaceOwnerSelect").innerHTML = options;
-  $("#clientsList").innerHTML = clients.length ? clients.map((user) => `
-    <div class="client-row">
-      <div><strong>${escapeHtml(user.name)}</strong><small>Created ${formatDate(user.createdAt)}</small></div>
-      <span>${escapeHtml(user.email)}</span>
-      <span class="badge ${user.active ? "" : "off"}">${user.active ? "Active" : "Disabled"}</span>
-      <button class="button secondary" data-reset-pass="${user.id}" type="button">Reset password</button>
-      <button class="button ${user.active ? "danger" : "secondary"}" data-toggle-user="${user.id}" data-active="${!user.active}" type="button">${user.active ? "Disable" : "Enable"}</button>
-    </div>`).join("") : `<div class="empty">No clients yet.</div>`;
-}
-async function loadWorkspaces() {
-  const body = await api("/api/workspaces");
-  state.workspaces = body.workspaces || [];
-  $("#accountWorkspaceSelect").innerHTML = state.workspaces.map((workspace) => `<option value="${workspace.id}">${escapeHtml(workspace.name)}</option>`).join("");
-  $("#workspacesGrid").innerHTML = state.workspaces.length ? state.workspaces.map((workspace) => {
-    const plan = workspace.plan || {};
-    const usage = workspace.usage || { users: 0, numbers: 0 };
-    return `<article class="workspace-card">
-      <div class="workspace-head"><span class="wa-icon">W</span><span class="badge">${escapeHtml(plan.name || workspace.planId)}</span></div>
-      <h4>${escapeHtml(workspace.name)}</h4>
-      ${state.user.role === "admin" ? `<div class="owner">Client: ${escapeHtml(workspace.ownerName)}</div>` : ""}
-      <div class="owner">Numbers: ${usage.numbers}/${plan.numberLimit ?? "-"}</div>
-      <div class="owner">Users: ${usage.users}/${plan.userLimit ?? "-"}</div>
-      <div class="workspace-actions"><button class="button secondary" data-select-workspace="${workspace.id}">Add number here</button></div>
-    </article>`;
-  }).join("") : `<div class="empty"><strong>No workspace yet.</strong><br>Create a workspace before adding WhatsApp numbers.</div>`;
-}
-async function loadAccounts() {
-  const body = await api("/api/accounts");
-  state.accounts = body.accounts;
-  $("#accountsGrid").innerHTML = state.accounts.length ? state.accounts.map((account) => `
-    <article class="workspace-card">
-      <div class="workspace-head"><span class="wa-icon">W</span><span class="live-dot ${account.running ? "running" : ""}">${account.running ? "Running" : "Closed"}</span></div>
-      <h4>${escapeHtml(account.label)}</h4>
-      <div class="phone">${escapeHtml(account.phone)}</div>
-      <div class="owner">Workspace: ${escapeHtml(account.workspaceName)}</div>
-      ${state.user.role === "admin" ? `<div class="owner">Client: ${escapeHtml(account.ownerName)}</div>` : ""}
-      <div class="workspace-actions">
-        <button class="button primary" data-launch="${account.id}">${account.profileCreated ? "Open WhatsApp" : "Link account"}</button>
-        ${account.running ? `<button class="button danger" data-close="${account.id}">Close</button>` : ""}
-        <button class="button secondary" data-remove-account="${account.id}" type="button">Remove</button>
-      </div>
-    </article>`).join("") : `<div class="empty"><strong>No WhatsApp numbers yet.</strong><br>Add one inside a workspace to create an isolated browser profile.</div>`;
-}
-async function refreshWorkspaceData() { await Promise.all([loadPlans(), loadWorkspaces(), loadAccounts()]); }
+async function loadPlans() { const body = await api("/api/plans"); state.plans = body.plans || []; $("#planSelect").innerHTML = state.plans.map((p) => `<option value="${p.id}">${escapeHtml(p.name)} (${p.numberLimit} numbers / ${p.userLimit} users)</option>`).join(""); }
+async function loadUsers() { if (state.user.role !== "admin") return; const body = await api("/api/users"); state.users = body.users; const clients = state.users.filter((u) => u.role === "client"); const options = clients.map((u) => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join(""); $("#workspaceOwnerSelect").innerHTML = options; $("#memberUserSelect").innerHTML = clients.map((u) => `<option value="${u.id}">${escapeHtml(u.name)} - ${escapeHtml(u.email)}</option>`).join(""); $("#clientsList").innerHTML = clients.length ? clients.map((u) => `<div class="client-row"><div><strong>${escapeHtml(u.name)}</strong><small>Created ${formatDate(u.createdAt)}</small></div><span>${escapeHtml(u.email)}</span><span class="badge ${u.active ? "" : "off"}">${u.active ? "Active" : "Disabled"}</span><button class="button secondary" data-reset-pass="${u.id}" type="button">Reset password</button><button class="button ${u.active ? "danger" : "secondary"}" data-toggle-user="${u.id}" data-active="${!u.active}" type="button">${u.active ? "Disable" : "Enable"}</button></div>`).join("") : `<div class="empty">No clients yet.</div>`; }
+async function loadWorkspaces() { const body = await api("/api/workspaces"); state.workspaces = body.workspaces || []; const wsOptions = state.workspaces.map((w) => `<option value="${w.id}">${escapeHtml(w.name)}</option>`).join(""); $("#accountWorkspaceSelect").innerHTML = wsOptions; $("#memberWorkspaceSelect").innerHTML = wsOptions; $("#workspacesGrid").innerHTML = state.workspaces.length ? state.workspaces.map((w) => { const plan = w.plan || {}; const usage = w.usage || { users: 0, numbers: 0 }; return `<article class="workspace-card"><div class="workspace-head"><span class="wa-icon">W</span><span class="badge">${escapeHtml(plan.name || w.planId)}</span></div><h4>${escapeHtml(w.name)}</h4>${state.user.role === "admin" ? `<div class="owner">Client: ${escapeHtml(w.ownerName)}</div>` : ""}<div class="owner">Numbers: ${usage.numbers}/${plan.numberLimit ?? "-"}</div><div class="owner">Users: ${usage.users}/${plan.userLimit ?? "-"}</div><div class="workspace-actions"><button class="button secondary" data-select-workspace="${w.id}">Add number</button><button class="button secondary admin-only" data-select-member-workspace="${w.id}">Add member</button></div></article>`; }).join("") : `<div class="empty"><strong>No workspace yet.</strong><br>Create a workspace before adding WhatsApp numbers.</div>`; }
+async function loadAccounts() { const body = await api("/api/accounts"); state.accounts = body.accounts; $("#accountsGrid").innerHTML = state.accounts.length ? state.accounts.map((a) => `<article class="workspace-card"><div class="workspace-head"><span class="wa-icon">W</span><span class="live-dot ${a.running ? "running" : ""}">${a.running ? "Running" : "Closed"}</span></div><h4>${escapeHtml(a.label)}</h4><div class="phone">${escapeHtml(a.phone)}</div><div class="owner">Workspace: ${escapeHtml(a.workspaceName)}</div>${state.user.role === "admin" ? `<div class="owner">Client: ${escapeHtml(a.ownerName)}</div>` : ""}<div class="workspace-actions"><button class="button primary" data-launch="${a.id}">${a.profileCreated ? "Open WhatsApp" : "Link account"}</button>${a.running ? `<button class="button danger" data-close="${a.id}">Close</button>` : ""}<button class="button secondary" data-remove-account="${a.id}" type="button">Remove</button></div></article>`).join("") : `<div class="empty"><strong>No WhatsApp numbers yet.</strong><br>Add one inside a workspace to create an isolated browser profile.</div>`; }
+async function loadMembers() { state.membersByWorkspace = {}; await Promise.all(state.workspaces.map(async (w) => { try { state.membersByWorkspace[w.id] = (await api(`/api/workspaces/${w.id}/members`)).members || []; } catch { state.membersByWorkspace[w.id] = []; } })); const rows = state.workspaces.flatMap((w) => (state.membersByWorkspace[w.id] || []).map((m) => ({ workspace: w, member: m }))); $("#membersList").innerHTML = rows.length ? rows.map(({ workspace, member }) => `<div class="client-row"><div><strong>${escapeHtml(member.user?.name || member.userId)}</strong><small>${escapeHtml(member.user?.email || "")}</small></div><span>${escapeHtml(workspace.name)}</span><span class="badge">${escapeHtml(member.role)}</span><button class="button danger admin-only" data-remove-member="${workspace.id}:${member.userId}">Remove</button></div>`).join("") : `<div class="empty">No workspace members yet.</div>`; }
+async function refreshWorkspaceData() { await Promise.all([loadPlans(), loadWorkspaces(), loadAccounts()]); await loadMembers(); }
 
 $("#loginForm").addEventListener("submit", async (event) => { event.preventDefault(); const data = Object.fromEntries(new FormData(event.currentTarget)); try { const body = await api("/api/login", { method: "POST", body: JSON.stringify(data) }); state.user = body.user; state.csrf = body.csrfToken; showAuth(true); applyUser(); await Promise.all([loadUsers(), refreshWorkspaceData()]); } catch (error) { toast(error.message); } });
 $("#logoutButton").addEventListener("click", async () => { await api("/api/logout", { method: "POST" }); location.reload(); });
-$("#showWorkspaceForm").addEventListener("click", () => $("#workspaceForm").classList.toggle("hidden"));
-$("#showAccountForm").addEventListener("click", () => $("#accountForm").classList.toggle("hidden"));
-$("#showClientForm").addEventListener("click", () => $("#clientForm").classList.toggle("hidden"));
-$("#refreshAccounts").addEventListener("click", refreshWorkspaceData);
-$("#menuButton").addEventListener("click", () => $(".sidebar").classList.toggle("open"));
-document.querySelectorAll(".nav-item").forEach((item) => item.addEventListener("click", () => switchView(item.dataset.view)));
-
+$("#showWorkspaceForm").addEventListener("click", () => $("#workspaceForm").classList.toggle("hidden")); $("#showAccountForm").addEventListener("click", () => $("#accountForm").classList.toggle("hidden")); $("#showMemberForm").addEventListener("click", () => $("#memberForm").classList.toggle("hidden")); $("#showClientForm").addEventListener("click", () => $("#clientForm").classList.toggle("hidden")); $("#refreshAccounts").addEventListener("click", refreshWorkspaceData); $("#menuButton").addEventListener("click", () => $(".sidebar").classList.toggle("open")); document.querySelectorAll(".nav-item").forEach((item) => item.addEventListener("click", () => switchView(item.dataset.view)));
 $("#workspaceForm").addEventListener("submit", async (event) => { event.preventDefault(); const data = Object.fromEntries(new FormData(event.currentTarget)); try { await api("/api/workspaces", { method: "POST", body: JSON.stringify(data) }); event.currentTarget.reset(); event.currentTarget.classList.add("hidden"); await refreshWorkspaceData(); toast("Workspace created"); } catch (error) { toast(error.message); } });
 $("#accountForm").addEventListener("submit", async (event) => { event.preventDefault(); const data = Object.fromEntries(new FormData(event.currentTarget)); try { await api("/api/accounts", { method: "POST", body: JSON.stringify(data) }); event.currentTarget.reset(); event.currentTarget.classList.add("hidden"); await refreshWorkspaceData(); toast("WhatsApp number added"); } catch (error) { toast(error.message); } });
+$("#memberForm").addEventListener("submit", async (event) => { event.preventDefault(); const data = Object.fromEntries(new FormData(event.currentTarget)); try { await api(`/api/workspaces/${data.workspaceId}/members`, { method: "POST", body: JSON.stringify(data) }); event.currentTarget.classList.add("hidden"); await refreshWorkspaceData(); toast("Member added"); } catch (error) { toast(error.message); } });
 $("#clientForm").addEventListener("submit", async (event) => { event.preventDefault(); const data = Object.fromEntries(new FormData(event.currentTarget)); try { await api("/api/users", { method: "POST", body: JSON.stringify(data) }); event.currentTarget.reset(); event.currentTarget.classList.add("hidden"); await loadUsers(); toast("Client login created"); } catch (error) { toast(error.message); } });
 
-document.addEventListener("click", async (event) => {
-  const launch = event.target.closest("[data-launch]"); const close = event.target.closest("[data-close]"); const toggle = event.target.closest("[data-toggle-user]"); const remove = event.target.closest("[data-remove-account]"); const resetPass = event.target.closest("[data-reset-pass]"); const selectWorkspace = event.target.closest("[data-select-workspace]");
-  try {
-    if (selectWorkspace) { $("#accountWorkspaceSelect").value = selectWorkspace.dataset.selectWorkspace; $("#accountForm").classList.remove("hidden"); $("#accountForm input[name='label']").focus(); }
-    if (launch) { launch.disabled = true; await api(`/api/accounts/${launch.dataset.launch}/launch`, { method: "POST" }); toast("WhatsApp opened on the Windows desktop"); await refreshWorkspaceData(); }
-    if (close) { await api(`/api/accounts/${close.dataset.close}/close`, { method: "POST" }); await refreshWorkspaceData(); }
-    if (remove) { if (!confirm("Remove this WhatsApp number and browser profile?")) return; await api("/api/accounts/" + remove.dataset.removeAccount, { method: "DELETE" }); toast("WhatsApp number removed"); await refreshWorkspaceData(); }
-    if (toggle) { await api(`/api/users/${toggle.dataset.toggleUser}`, { method: "PATCH", body: JSON.stringify({ active: toggle.dataset.active === "true" }) }); await loadUsers(); }
-    if (resetPass) { const newPassword = prompt("New client password - minimum 10 characters"); if(!newPassword) return; await api("/api/users/" + resetPass.dataset.resetPass + "/password", { method: "POST", body: JSON.stringify({ newPassword }) }); toast("Client password reset"); }
-  } catch (error) { toast(error.message); if (launch) launch.disabled = false; }
-});
+document.addEventListener("click", async (event) => { const launch = event.target.closest("[data-launch]"); const close = event.target.closest("[data-close]"); const toggle = event.target.closest("[data-toggle-user]"); const remove = event.target.closest("[data-remove-account]"); const resetPass = event.target.closest("[data-reset-pass]"); const selectWorkspace = event.target.closest("[data-select-workspace]"); const selectMemberWorkspace = event.target.closest("[data-select-member-workspace]"); const removeMember = event.target.closest("[data-remove-member]"); try { if (selectWorkspace) { $("#accountWorkspaceSelect").value = selectWorkspace.dataset.selectWorkspace; $("#accountForm").classList.remove("hidden"); $("#accountForm input[name='label']").focus(); } if (selectMemberWorkspace) { $("#memberWorkspaceSelect").value = selectMemberWorkspace.dataset.selectMemberWorkspace; $("#memberForm").classList.remove("hidden"); } if (removeMember) { const [workspaceId, userId] = removeMember.dataset.removeMember.split(":"); if (!confirm("Remove this member?")) return; await api(`/api/workspaces/${workspaceId}/members/${userId}`, { method: "DELETE" }); await refreshWorkspaceData(); toast("Member removed"); } if (launch) { launch.disabled = true; await api(`/api/accounts/${launch.dataset.launch}/launch`, { method: "POST" }); toast("WhatsApp opened on the Windows desktop"); await refreshWorkspaceData(); } if (close) { await api(`/api/accounts/${close.dataset.close}/close`, { method: "POST" }); await refreshWorkspaceData(); } if (remove) { if (!confirm("Remove this WhatsApp number and browser profile?")) return; await api("/api/accounts/" + remove.dataset.removeAccount, { method: "DELETE" }); toast("WhatsApp number removed"); await refreshWorkspaceData(); } if (toggle) { await api(`/api/users/${toggle.dataset.toggleUser}`, { method: "PATCH", body: JSON.stringify({ active: toggle.dataset.active === "true" }) }); await loadUsers(); } if (resetPass) { const newPassword = prompt("New client password - minimum 10 characters"); if(!newPassword) return; await api("/api/users/" + resetPass.dataset.resetPass + "/password", { method: "POST", body: JSON.stringify({ newPassword }) }); toast("Client password reset"); } } catch (error) { toast(error.message); if (launch) launch.disabled = false; } });
 async function loadAudit(){ if(!state.user || state.user.role !== "admin") return; const body = await api("/api/audit?limit=100"); const rows = body.audit || []; const target = $("#auditList"); if(!target) return; target.innerHTML = rows.length ? rows.map((row) => `<div class="client-row audit-row"><div><strong>${escapeHtml(row.action)}</strong><small>${formatDate(row.createdAt)} - ${escapeHtml(row.userName || row.userId || "system")}</small></div><span class="audit-details">${escapeHtml(JSON.stringify(row.details || {}))}</span></div>`).join("") : `<div class="empty">No audit logs yet.</div>`; }
-$("#refreshAudit")?.addEventListener("click", loadAudit);
-$("#changePasswordButton")?.addEventListener("click", async function(){ const currentPassword = prompt("Current password"); if(!currentPassword) return; const newPassword = prompt("New password - minimum 10 characters"); if(!newPassword) return; try { await api("/api/me/password", { method: "POST", body: JSON.stringify({ currentPassword, newPassword }) }); toast("Password changed"); } catch(error){ toast(error.message); } });
-document.querySelectorAll(".nav-item").forEach((item) => item.addEventListener("click", () => { if(item.dataset.view === "audit") loadAudit(); }));
-
+$("#refreshAudit")?.addEventListener("click", loadAudit); $("#changePasswordButton")?.addEventListener("click", async function(){ const currentPassword = prompt("Current password"); if(!currentPassword) return; const newPassword = prompt("New password - minimum 10 characters"); if(!newPassword) return; try { await api("/api/me/password", { method: "POST", body: JSON.stringify({ currentPassword, newPassword }) }); toast("Password changed"); } catch(error){ toast(error.message); } }); document.querySelectorAll(".nav-item").forEach((item) => item.addEventListener("click", () => { if(item.dataset.view === "audit") loadAudit(); }));
 (async function boot() { try { const body = await api("/api/session"); state.csrf = body.csrfToken; state.user = body.user; $("#brandName").textContent = body.appName; showAuth(body.authenticated); if (body.authenticated) { applyUser(); await Promise.all([loadUsers(), refreshWorkspaceData()]); } } catch (error) { showAuth(false); toast("Could not connect to server"); } })();
