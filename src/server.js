@@ -11,6 +11,7 @@ const bcrypt = require("bcryptjs");
 const Store = require("./store");
 const BrowserLauncher = require("./launcher");
 const { assertSecurityConfig } = require("./security");
+const { systemHealth } = require("./monitoring");
 
 const rootDir = path.resolve(__dirname, "..");
 const app = express();
@@ -18,7 +19,6 @@ const store = new Store(rootDir);
 const launcher = new BrowserLauncher(rootDir);
 const FileStore = FileStoreFactory(session);
 const port = Number(process.env.PORT || 3131);
-const production = process.env.NODE_ENV === "production";
 
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
@@ -45,6 +45,7 @@ app.get("/api/users", requireAuth, requireAdmin, (req, res) => res.json({ users:
 app.get("/api/plans", requireAuth, (req, res) => res.json({ plans: store.data.plans }));
 app.get("/api/remote-desktop", requireAuth, (req, res) => res.json({ remoteDesktop: remoteDesktopConfig() }));
 app.get("/api/audit", requireAuth, requireAdmin, (req, res) => res.json({ audit: store.listAudit(req.query.limit) }));
+app.get("/api/monitoring", requireAuth, requireAdmin, (req, res) => res.json({ health: systemHealth(store, launcher) }));
 app.post("/api/users", requireAuth, requireAdmin, async (req, res) => { const name = String(req.body.name || "").trim(); const email = String(req.body.email || "").trim(); const password = String(req.body.password || ""); if (name.length < 2 || !isValidEmail(email) || password.length < 10) return res.status(400).json({ error: "Enter a valid name, email, and password of at least 10 characters" }); try { const user = await store.createClient({ name, email, password }); store.addAudit(req.user.id, "client.created", { clientId: user.id }); res.status(201).json({ user }); } catch (error) { res.status(409).json({ error: error.message }); } });
 app.post("/api/me/password", requireAuth, async (req, res) => { const currentPassword = String(req.body.currentPassword || ""); const newPassword = String(req.body.newPassword || ""); if (newPassword.length < 10) return res.status(400).json({ error: "New password must be at least 10 characters" }); const changed = await store.changePassword(req.user.id, currentPassword, newPassword); if (!changed) return res.status(400).json({ error: "Current password is incorrect" }); store.addAudit(req.user.id, "password.changed"); res.json({ ok: true }); });
 app.post("/api/users/:id/password", requireAuth, requireAdmin, async (req, res) => { const newPassword = String(req.body.newPassword || ""); if (newPassword.length < 10) return res.status(400).json({ error: "New password must be at least 10 characters" }); const user = await store.resetPassword(req.params.id, newPassword); if (!user) return res.status(404).json({ error: "Client not found" }); store.addAudit(req.user.id, "client.password.reset", { clientId: user.id }); res.json({ user }); });
