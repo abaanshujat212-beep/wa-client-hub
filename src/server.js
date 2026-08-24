@@ -12,6 +12,7 @@ const Store = require("./store");
 const BrowserLauncher = require("./launcher");
 const { assertSecurityConfig } = require("./security");
 const { systemHealth } = require("./monitoring");
+const { adminSummary } = require("./adminSummary");
 
 const rootDir = path.resolve(__dirname, "..");
 const app = express();
@@ -42,6 +43,7 @@ app.post("/api/login", loginLimiter, async (req, res) => { const email = String(
 app.post("/api/logout", requireAuth, (req, res) => { const userId = req.user.id; req.session.destroy(() => { store.addAudit(userId, "logout"); res.json({ ok: true }); }); });
 
 app.get("/api/users", requireAuth, requireAdmin, (req, res) => res.json({ users: store.listUsers() }));
+app.get("/api/admin/summary", requireAuth, requireAdmin, (req, res) => res.json(adminSummary(store, launcher)));
 app.get("/api/plans", requireAuth, (req, res) => res.json({ plans: store.data.plans }));
 app.get("/api/remote-desktop", requireAuth, (req, res) => res.json({ remoteDesktop: remoteDesktopConfig() }));
 app.get("/api/audit", requireAuth, requireAdmin, (req, res) => res.json({ audit: store.listAudit(req.query.limit) }));
