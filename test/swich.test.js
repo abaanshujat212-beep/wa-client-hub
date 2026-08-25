@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { swichConfig, assertSwichConfigured, mapSwichStatus } = require("../src/billing/swich");
+const { swichConfig, assertSwichConfigured, mapSwichStatus, buildSwichPaymentPayload } = require("../src/billing/swich");
 
 test("swichConfig uses sandbox defaults", () => {
   const config = swichConfig({});
@@ -19,4 +19,12 @@ test("mapSwichStatus maps payment statuses", () => {
   assert.equal(mapSwichStatus("pending"), "pending");
   assert.equal(mapSwichStatus("failed"), "past_due");
   assert.equal(mapSwichStatus("expired"), "canceled");
+});
+
+test("buildSwichPaymentPayload includes workspace metadata", () => {
+  const payload = buildSwichPaymentPayload({ workspace: { id: "w1", planId: "team" }, plan: { name: "Team" }, amount: 5000, customer: { name: "Client", email: "c@test.local" } });
+  assert.equal(payload.amount, 5000);
+  assert.equal(payload.currency, "PKR");
+  assert.equal(payload.metadata.workspaceId, "w1");
+  assert.equal(payload.customer.email, "c@test.local");
 });

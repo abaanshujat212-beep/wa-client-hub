@@ -37,6 +37,36 @@ async function getSwichAccessToken(config = swichConfig(), fetchImpl = fetch) {
   return payload.access_token;
 }
 
+function buildSwichPaymentPayload({ workspace, plan, amount, customer }) {
+  return {
+    amount,
+    currency: "PKR",
+    description: `WA Client Hub - ${plan?.name || workspace.planId}`,
+    referenceId: `wa-${workspace.id}-${Date.now()}`,
+    customer: {
+      name: customer?.name || "Customer",
+      email: customer?.email || "customer@example.com"
+    },
+    metadata: {
+      workspaceId: workspace.id,
+      planId: workspace.planId
+    },
+    isRecurringPayment: false
+  };
+}
+
+async function createSwichCardPayment({ workspace, plan, amount, customer }, config = swichConfig(), fetchImpl = fetch) {
+  const token = await getSwichAccessToken(config, fetchImpl);
+  const response = await fetchImpl(`${config.apiBaseUrl}/api/Payment/PaymentV2`, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+    body: JSON.stringify(buildSwichPaymentPayload({ workspace, plan, amount, customer }))
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.message || payload.error || "Swich payment creation failed");
+  return payload;
+}
+
 function mapSwichStatus(status) {
   const value = String(status || "").toLowerCase();
   if (["paid", "success", "successful", "captured", "completed"].includes(value)) return "active";
@@ -46,4 +76,4 @@ function mapSwichStatus(status) {
   return "pending";
 }
 
-module.exports = { swichConfig, assertSwichConfigured, getSwichAccessToken, mapSwichStatus };
+module.exports = { swichConfig, assertSwichConfigured, getSwichAccessToken, buildSwichPaymentPayload, createSwichCardPayment, mapSwichStatus };
