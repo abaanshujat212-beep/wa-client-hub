@@ -26,21 +26,28 @@ Auth flow:
 | Payout | No | `/gateway/payout/*` | No |
 | Remittance | No | `/gateway/payout/Remittance/*` | No |
 
-## WA Client Hub recommended Swich flow
+## Current implementation status
 
-For the first implementation, use **Card redirect/Landing Page** or **Card PaymentV2** because card supports recurring payments.
+Implemented:
 
-Preferred order:
+- Swich sandbox config helper.
+- OAuth token helper for `POST /connect/token`.
+- Swich status mapper.
+- Swich route module with:
+  - `POST /token-test`
+  - `POST /webhook` placeholder
+- Tests for config/status mapping and route module.
 
-1. Sandbox OAuth/token helper.
-2. PayIn card payment creation.
-3. Payment inquiry/status sync.
-4. Optional recurring card flow using `isRecurringPayment`.
-5. Webhook/status mapping once Swich webhook payload is confirmed.
+Still to wire:
+
+- Mount route module in `src/server.js` under `/api/billing/swich`.
+- Add checkout/payment creation route.
+- Add payment inquiry route.
+- Verify webhook signature once payload format is confirmed.
 
 ## App billing provider model
 
-WA Client Hub should support:
+WA Client Hub supports:
 
 ```text
 manual
@@ -48,16 +55,6 @@ stripe
 whop
 swich
 ```
-
-Suggested workspace/client billing fields:
-
-- `billingProvider`: `manual | stripe | whop | swich`
-- `billingCustomerId`
-- `billingSubscriptionId`
-- `billingStatus`: `trialing | active | pending | past_due | canceled | unpaid | manual`
-- `billingPlanId`
-- `currentPeriodEnd`
-- `customLimits`
 
 ## Environment variables
 
@@ -72,38 +69,16 @@ SWICH_SUCCESS_URL=https://your-domain.example.com/billing/success
 SWICH_CANCEL_URL=https://your-domain.example.com/billing/cancel
 ```
 
-Exact client credentials and webhook secret names should match the Swich merchant dashboard.
-
-## Endpoints to implement in WA Client Hub
-
-- `POST /api/billing/swich/token-test` — admin-only sandbox auth check.
-- `POST /api/billing/swich/checkout` — create Swich payment/checkout for workspace plan.
-- `POST /api/billing/swich/webhook` — receive Swich events.
-- `GET /api/billing/swich/inquire/:transactionId` — admin-only payment inquiry.
-
-## Status mapping draft
-
-| Swich status | App status |
-| --- | --- |
-| paid / success / captured | active |
-| pending / initiated | pending |
-| failed | past_due |
-| canceled / expired / reversed | canceled |
-
-Final status names must follow real Swich response payloads.
-
 ## Enforcement
 
-If billing status is unpaid/canceled/past_due:
+If billing status is unpaid/canceled/past_due/pending:
 
 - allow login
 - show billing warning
 - block adding new users/numbers
-- optionally block launching WhatsApp after grace period
 
 ## Notes
 
 - Do not store card/payment secrets in WA Client Hub.
 - Use HTTPS for webhook endpoint.
 - Log webhook event IDs and status changes in audit logs.
-- Swich is an additional provider option, alongside Stripe, Whop, and manual billing.
