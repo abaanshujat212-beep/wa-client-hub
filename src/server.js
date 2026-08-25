@@ -14,6 +14,7 @@ const { assertSecurityConfig } = require("./security");
 const { systemHealth } = require("./monitoring");
 const { adminSummary } = require("./adminSummary");
 const { accountSessionStatus, statusLabel } = require("./sessionStatus");
+const { createSwichRouter } = require("./billing/swichRoutes");
 
 const rootDir = path.resolve(__dirname, "..");
 const app = express();
@@ -29,7 +30,7 @@ app.use(express.json({ limit: "50kb" }));
 app.use(session({ store: new FileStore({ path: path.join(rootDir, "data", "sessions"), ttl: 60 * 60 * 12, retries: 1 }), name: "wa_hub_session", secret: process.env.SESSION_SECRET || "development-only-secret-change-this-now", resave: false, saveUninitialized: false, cookie: { httpOnly: true, secure: process.env.COOKIE_SECURE === "true" ? true : "auto", sameSite: "lax", maxAge: 1000 * 60 * 60 * 12 } }));
 
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false });
-function csrf(req, res, next) { if (!req.session.csrfToken) req.session.csrfToken = crypto.randomBytes(24).toString("hex"); if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method) && req.path !== "/api/invites/accept" && req.get("x-csrf-token") !== req.session.csrfToken) return res.status(403).json({ error: "Security token is invalid. Refresh and try again." }); next(); }
+function csrf(req, res, next) { if (!req.session.csrfToken) req.session.csrfToken = crypto.randomBytes(24).toString("hex"); if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method) && req.path !== "/api/invites/accept" && !req.path.startsWith("/api/billing/swich/webhook") && req.get("x-csrf-token") !== req.session.csrfToken) return res.status(403).json({ error: "Security token is invalid. Refresh and try again." }); next(); }
 function requireAuth(req, res, next) { const user = req.session.userId && store.findUser(req.session.userId); if (!user || !user.active) return res.status(401).json({ error: "Please sign in" }); req.user = user; next(); }
 function requireAdmin(req, res, next) { if (req.user.role !== "admin") return res.status(403).json({ error: "Administrator access required" }); next(); }
 function isValidEmail(email) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim()); }
@@ -43,6 +44,8 @@ app.use(csrf);
 app.get("/api/session", (req, res) => { const user = req.session.userId && store.findUser(req.session.userId); res.json({ authenticated: Boolean(user && user.active), user: user && user.active ? store.publicUser(user) : null, csrfToken: req.session.csrfToken, appName: process.env.APP_NAME || "WA Client Hub" }); });
 app.post("/api/login", loginLimiter, async (req, res) => { const email = String(req.body.email || "").trim().toLowerCase(); const password = String(req.body.password || ""); const user = store.findUserByEmail(email); if (!user || !user.active || !(await bcrypt.compare(password, user.passwordHash))) { store.addAudit(user?.id || "anonymous", "login.failed", { email, ip: req.ip }); return res.status(401).json({ error: "Email or password is incorrect" }); } req.session.regenerate((error) => { if (error) return res.status(500).json({ error: "Could not start session" }); req.session.userId = user.id; req.session.csrfToken = crypto.randomBytes(24).toString("hex"); store.addAudit(user.id, "login", { ip: req.ip }); res.json({ user: store.publicUser(user), csrfToken: req.session.csrfToken }); }); });
 app.post("/api/logout", requireAuth, (req, res) => { const userId = req.user.id; req.session.destroy(() => { store.addAudit(userId, "logout"); res.json({ ok: true }); }); });
+
+app.use("/api/billing/swich", (req, res, next) => req.path === "/webhook" ? next() : requireAuth(req, res, () => requireAdmin(req, res, next)), createSwichRouter({ store }));
 
 app.get("/api/users", requireAuth, requireAdmin, (req, res) => res.json({ users: store.listUsers() }));
 app.get("/api/admin/summary", requireAuth, requireAdmin, (req, res) => res.json(adminSummary(store, launcher)));
