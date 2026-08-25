@@ -2,17 +2,6 @@
 
 Swich Payment APIs v2.0.0 use OpenAPI 3.0.3.
 
-## Environments
-
-| Environment | Main API | Auth | Card checkout |
-| --- | --- | --- | --- |
-| Sandbox | `https://sandbox-api.swichnow.com` | `https://sandbox-auth.swichnow.com` | `https://sandbox-api.checkout.swichnow.com` |
-
-Auth flow:
-
-1. Call `POST /connect/token` on the auth server.
-2. Use the returned `access_token` as Bearer token for API calls.
-
 ## Current implementation status
 
 Implemented:
@@ -27,14 +16,10 @@ Implemented:
   - `POST /checkout`
   - `GET /inquire/:transactionId`
   - `POST /webhook` placeholder
+- Admin dashboard actions:
+  - Test Swich token from Monitoring tab.
+  - Create Swich checkout from workspace cards.
 - Tests for config/status mapping and route module.
-
-Still to do:
-
-- Confirm exact Swich checkout response fields.
-- Store Swich transaction IDs on workspace/payment records.
-- Verify webhook signature once payload format is confirmed.
-- Map webhook statuses to workspace billing status.
 
 ## Environment variables
 
@@ -48,3 +33,9 @@ SWICH_WEBHOOK_SECRET=
 SWICH_SUCCESS_URL=https://your-domain.example.com/billing/success
 SWICH_CANCEL_URL=https://your-domain.example.com/billing/cancel
 ```
+
+## Notes
+
+- Confirm exact Swich checkout response fields before production.
+- Store Swich transaction IDs after adding payment records.
+- Verify webhook signature once payload format is confirmed.
