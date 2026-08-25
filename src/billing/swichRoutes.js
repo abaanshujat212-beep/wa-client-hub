@@ -1,5 +1,5 @@
 const express = require("express");
-const { swichConfig, getSwichAccessToken, createSwichCardPayment } = require("./swich");
+const { swichConfig, getSwichAccessToken, createSwichCardPayment, inquireSwichPayment } = require("./swich");
 
 function createSwichRouter({ store }) {
   const router = express.Router();
@@ -30,6 +30,17 @@ function createSwichRouter({ store }) {
       res.status(201).json({ payment });
     } catch (error) {
       store.addAudit(req.user.id, "billing.swich.checkout.failed", { workspaceId, error: error.message });
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  router.get("/inquire/:transactionId", async (req, res) => {
+    try {
+      const inquiry = await inquireSwichPayment(req.params.transactionId);
+      store.addAudit(req.user.id, "billing.swich.inquired", { transactionId: req.params.transactionId });
+      res.json({ inquiry });
+    } catch (error) {
+      store.addAudit(req.user.id, "billing.swich.inquiry.failed", { transactionId: req.params.transactionId, error: error.message });
       res.status(400).json({ error: error.message });
     }
   });

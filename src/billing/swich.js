@@ -67,6 +67,20 @@ async function createSwichCardPayment({ workspace, plan, amount, customer }, con
   return payload;
 }
 
+async function inquireSwichPayment(transactionId, config = swichConfig(), fetchImpl = fetch) {
+  if (!transactionId) throw new Error("Transaction ID is required");
+  const token = await getSwichAccessToken(config, fetchImpl);
+  const url = new URL(`${config.apiBaseUrl}/api/Payment/Inquire`);
+  url.searchParams.set("transactionId", transactionId);
+  const response = await fetchImpl(url.toString(), {
+    method: "GET",
+    headers: { authorization: `Bearer ${token}` }
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.message || payload.error || "Swich inquiry failed");
+  return payload;
+}
+
 function mapSwichStatus(status) {
   const value = String(status || "").toLowerCase();
   if (["paid", "success", "successful", "captured", "completed"].includes(value)) return "active";
@@ -76,4 +90,4 @@ function mapSwichStatus(status) {
   return "pending";
 }
 
-module.exports = { swichConfig, assertSwichConfigured, getSwichAccessToken, buildSwichPaymentPayload, createSwichCardPayment, mapSwichStatus };
+module.exports = { swichConfig, assertSwichConfigured, getSwichAccessToken, buildSwichPaymentPayload, createSwichCardPayment, inquireSwichPayment, mapSwichStatus };

@@ -13,48 +13,28 @@ Auth flow:
 1. Call `POST /connect/token` on the auth server.
 2. Use the returned `access_token` as Bearer token for API calls.
 
-## Supported payment channels
-
-| Channel | Redirect Gateway | Direct API | Recurring |
-| --- | --- | --- | --- |
-| Card | Yes, via Landing Page | `POST /api/Payment/PaymentV2`, capture/reversal/inquire/token APIs | Yes |
-| E-Wallet | Yes | `POST /gateway/payin/v2.0/purchase/ewallet` | Not documented |
-| 1Bill / Biller | Yes | `POST /gateway/payin/v2.0/purchase/biller` | Not documented |
-| Bank | Yes | `/gateway/payin/get/banks`, `/v2.0/bank/otp`, `/v2.0/bank/transfer` | Not documented |
-| QR | Yes | `/gateway/payin/v2.0/purchase/qr/dynamic/*` | Not documented |
-| RTP | Yes | `/gateway/payin/v2.0/purchase/rtp/*` | Not documented |
-| Payout | No | `/gateway/payout/*` | No |
-| Remittance | No | `/gateway/payout/Remittance/*` | No |
-
 ## Current implementation status
 
 Implemented:
 
 - Swich sandbox config helper.
 - OAuth token helper for `POST /connect/token`.
+- Card PayIn creation helper using `POST /api/Payment/PaymentV2`.
+- Payment inquiry helper using `GET /api/Payment/Inquire?transactionId=...`.
 - Swich status mapper.
-- Swich route module with:
+- Mounted Swich routes under `/api/billing/swich`:
   - `POST /token-test`
+  - `POST /checkout`
+  - `GET /inquire/:transactionId`
   - `POST /webhook` placeholder
 - Tests for config/status mapping and route module.
 
-Still to wire:
+Still to do:
 
-- Mount route module in `src/server.js` under `/api/billing/swich`.
-- Add checkout/payment creation route.
-- Add payment inquiry route.
+- Confirm exact Swich checkout response fields.
+- Store Swich transaction IDs on workspace/payment records.
 - Verify webhook signature once payload format is confirmed.
-
-## App billing provider model
-
-WA Client Hub supports:
-
-```text
-manual
-stripe
-whop
-swich
-```
+- Map webhook statuses to workspace billing status.
 
 ## Environment variables
 
@@ -68,17 +48,3 @@ SWICH_WEBHOOK_SECRET=
 SWICH_SUCCESS_URL=https://your-domain.example.com/billing/success
 SWICH_CANCEL_URL=https://your-domain.example.com/billing/cancel
 ```
-
-## Enforcement
-
-If billing status is unpaid/canceled/past_due/pending:
-
-- allow login
-- show billing warning
-- block adding new users/numbers
-
-## Notes
-
-- Do not store card/payment secrets in WA Client Hub.
-- Use HTTPS for webhook endpoint.
-- Log webhook event IDs and status changes in audit logs.
