@@ -22,19 +22,22 @@ Implemented:
 - API key validation helper.
 - Whop status mapper into WA Client Hub billing statuses.
 - Membership inquiry helper.
-- Route module with:
+- Mounted route module under `/api/billing/whop`:
   - `POST /token-test`
   - `GET /membership/:membershipId`
   - `POST /webhook` placeholder
 - Webhook placeholder can update workspace billing status if payload contains `metadata.workspaceId` and `status`.
+- Admin dashboard actions:
+  - Test Whop API key from Monitoring tab.
+  - Check Whop membership by ID from Monitoring tab.
+- Tests for Whop helpers and routes.
 
 Still to do:
 
-- Mount Whop routes in `src/server.js`.
-- Confirm exact Whop membership endpoint/payload for the selected Whop API version.
+- Confirm exact Whop membership endpoint/payload for selected API version.
 - Verify webhook signature headers.
 - Map Whop product IDs to WA Client Hub plan IDs.
-- Add admin UI actions.
+- Store Whop customer/member/subscription IDs on workspace or client.
 
 ## Status mapping
 
