@@ -1,24 +1,10 @@
 # Stripe billing foundation
 
-WA Client Hub plans should map to Stripe products/prices before selling.
+Stripe is supported as a billing provider alongside:
 
-## Plans
-
-Suggested Stripe products:
-
-- Starter
-- Team
-- Business
-- Dedicated
-
-Suggested app mapping:
-
-| App plan | Stripe lookup key | Limits |
-| --- | --- | --- |
-| starter | `wa_starter_monthly` | 1 workspace, 1 number, 1 user |
-| team | `wa_team_monthly` | 1 workspace, 3 numbers, 3 users |
-| business | `wa_business_monthly` | 3 workspaces, 10 numbers, 10 users |
-| dedicated | custom/manual | custom limits + VM |
+- manual
+- whop
+- swich
 
 ## Environment
 
@@ -29,41 +15,34 @@ STRIPE_SUCCESS_URL=https://your-domain.example.com/billing/success
 STRIPE_CANCEL_URL=https://your-domain.example.com/billing/cancel
 ```
 
-## Billing data to store
+## Current implementation
 
-Add these fields later on workspace/client:
+Implemented:
 
-- `stripeCustomerId`
-- `stripeSubscriptionId`
-- `billingStatus`
-- `currentPeriodEnd`
-- `planId`
-- `customLimits`
+- Stripe config helper.
+- Secret-key validation helper.
+- Stripe subscription status mapper.
+- App plan -> Stripe lookup key mapper.
+- Route module with:
+  - `POST /token-test`
+  - `POST /checkout` skeleton
+  - `POST /webhook` placeholder
+- Tests for Stripe helpers and routes.
 
-## Webhooks to handle
+Still to do:
 
-- `checkout.session.completed`
-- `customer.subscription.created`
-- `customer.subscription.updated`
-- `customer.subscription.deleted`
-- `invoice.payment_failed`
-- `invoice.payment_succeeded`
+- Install official `stripe` package.
+- Create real Checkout Session using Stripe SDK.
+- Verify webhook signatures with raw body.
+- Store customer/subscription IDs.
+- Map Stripe price/product IDs to app plan IDs.
+- Mount Stripe routes in `src/server.js`.
 
-## Enforcement
+## Plan mapping draft
 
-If billing status is unpaid/canceled:
-
-- allow login
-- show billing warning
-- block adding new users/numbers
-- optionally block launching WhatsApp after grace period
-
-## Implementation order
-
-1. Add Stripe dependency.
-2. Add checkout session endpoint.
-3. Add webhook endpoint with raw body verification.
-4. Store customer/subscription IDs.
-5. Sync Stripe status to workspace billing status.
-6. Enforce billing status in workspace/account/member creation.
-7. Add billing UI page.
+| App plan | Stripe lookup key |
+| --- | --- |
+| starter | `wa_starter_monthly` |
+| team | `wa_team_monthly` |
+| business | `wa_business_monthly` |
+| dedicated | `wa_dedicated_monthly` |
