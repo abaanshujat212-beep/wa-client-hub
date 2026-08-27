@@ -16,6 +16,7 @@ const { adminSummary } = require("./adminSummary");
 const { accountSessionStatus, statusLabel } = require("./sessionStatus");
 const { createSwichRouter } = require("./billing/swichRoutes");
 const { createWhopRouter } = require("./billing/whopRoutes");
+const { createStripeRouter } = require("./billing/stripeRoutes");
 
 const rootDir = path.resolve(__dirname, "..");
 const app = express();
@@ -31,7 +32,7 @@ app.use(express.json({ limit: "50kb" }));
 app.use(session({ store: new FileStore({ path: path.join(rootDir, "data", "sessions"), ttl: 60 * 60 * 12, retries: 1 }), name: "wa_hub_session", secret: process.env.SESSION_SECRET || "development-only-secret-change-this-now", resave: false, saveUninitialized: false, cookie: { httpOnly: true, secure: process.env.COOKIE_SECURE === "true" ? true : "auto", sameSite: "lax", maxAge: 1000 * 60 * 60 * 12 } }));
 
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false });
-function csrf(req, res, next) { if (!req.session.csrfToken) req.session.csrfToken = crypto.randomBytes(24).toString("hex"); const billingWebhook = req.path.startsWith("/api/billing/swich/webhook") || req.path.startsWith("/api/billing/whop/webhook"); if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method) && req.path !== "/api/invites/accept" && !billingWebhook && req.get("x-csrf-token") !== req.session.csrfToken) return res.status(403).json({ error: "Security token is invalid. Refresh and try again." }); next(); }
+function csrf(req, res, next) { if (!req.session.csrfToken) req.session.csrfToken = crypto.randomBytes(24).toString("hex"); const billingWebhook = req.path.startsWith("/api/billing/swich/webhook") || req.path.startsWith("/api/billing/whop/webhook") || req.path.startsWith("/api/billing/stripe/webhook"); if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method) && req.path !== "/api/invites/accept" && !billingWebhook && req.get("x-csrf-token") !== req.session.csrfToken) return res.status(403).json({ error: "Security token is invalid. Refresh and try again." }); next(); }
 function requireAuth(req, res, next) { const user = req.session.userId && store.findUser(req.session.userId); if (!user || !user.active) return res.status(401).json({ error: "Please sign in" }); req.user = user; next(); }
 function requireAdmin(req, res, next) { if (req.user.role !== "admin") return res.status(403).json({ error: "Administrator access required" }); next(); }
 function billingAuth(router) { return [(req, res, next) => req.path === "/webhook" ? next() : requireAuth(req, res, () => requireAdmin(req, res, next)), router]; }
@@ -49,6 +50,7 @@ app.post("/api/logout", requireAuth, (req, res) => { const userId = req.user.id;
 
 app.use("/api/billing/swich", ...billingAuth(createSwichRouter({ store })));
 app.use("/api/billing/whop", ...billingAuth(createWhopRouter({ store })));
+app.use("/api/billing/stripe", ...billingAuth(createStripeRouter({ store })));
 
 app.get("/api/users", requireAuth, requireAdmin, (req, res) => res.json({ users: store.listUsers() }));
 app.get("/api/admin/summary", requireAuth, requireAdmin, (req, res) => res.json(adminSummary(store, launcher)));
