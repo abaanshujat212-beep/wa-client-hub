@@ -11,6 +11,11 @@ function assertStripeConfigured(config = stripeConfig()) {
   if (!config.secretKey) throw new Error("Stripe secret key is not configured");
 }
 
+function assertStripeWebhookConfigured(config = stripeConfig()) {
+  assertStripeConfigured(config);
+  if (!config.webhookSecret) throw new Error("Stripe webhook secret is not configured");
+}
+
 function mapStripeStatus(status) {
   const value = String(status || "").toLowerCase();
   if (["active", "trialing"].includes(value)) return value;
@@ -30,4 +35,22 @@ function stripePlanLookup(planId) {
   }[planId] || "wa_team_monthly";
 }
 
-module.exports = { stripeConfig, assertStripeConfigured, mapStripeStatus, stripePlanLookup };
+function createStripeClient(config = stripeConfig()) {
+  assertStripeConfigured(config);
+  const Stripe = require("stripe");
+  return new Stripe(config.secretKey);
+}
+
+async function findStripePrice(stripe, planId) {
+  const lookupKey = stripePlanLookup(planId);
+  const result = await stripe.prices.list({ active: true, lookup_keys: [lookupKey], limit: 1 });
+  const price = result.data?.[0];
+  if (!price) throw new Error(`No active Stripe price found for lookup key ${lookupKey}`);
+  return price;
+}
+
+function stripeObjectId(value) {
+  return typeof value === "string" ? value : value?.id || null;
+}
+
+module.exports = { stripeConfig, assertStripeConfigured, assertStripeWebhookConfigured, mapStripeStatus, stripePlanLookup, createStripeClient, findStripePrice, stripeObjectId };

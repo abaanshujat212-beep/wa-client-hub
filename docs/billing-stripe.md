@@ -25,18 +25,13 @@ Implemented:
 - App plan -> Stripe lookup key mapper.
 - Route module with:
   - `POST /token-test`
-  - `POST /checkout` skeleton
-  - `POST /webhook` placeholder
+  - `POST /checkout` creates a subscription Checkout Session from a plan lookup key.
+  - `POST /webhook` verifies Stripe signatures and processes Checkout/subscription lifecycle events.
 - Tests for Stripe helpers and routes.
+- Customer/subscription IDs, plan ID, billing status, and period end are persisted on the workspace.
+- Stripe routes are mounted at `/api/billing/stripe`.
 
-Still to do:
-
-- Install official `stripe` package.
-- Create real Checkout Session using Stripe SDK.
-- Verify webhook signatures with raw body.
-- Store customer/subscription IDs.
-- Map Stripe price/product IDs to app plan IDs.
-- Mount Stripe routes in `src/server.js`.
+Create recurring Stripe prices with the lookup keys below before using checkout. Configure a Stripe webhook for `checkout.session.completed` and `customer.subscription.*` events.
 
 ## Plan mapping draft
 

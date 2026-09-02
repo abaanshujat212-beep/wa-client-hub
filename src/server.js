@@ -28,7 +28,7 @@ const port = Number(process.env.PORT || 3131);
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(express.json({ limit: "50kb" }));
+app.use(express.json({ limit: "50kb", verify: (req, _res, buffer) => { if (req.originalUrl === "/api/billing/stripe/webhook") req.rawBody = Buffer.from(buffer); } }));
 app.use(session({ store: new FileStore({ path: path.join(rootDir, "data", "sessions"), ttl: 60 * 60 * 12, retries: 1 }), name: "wa_hub_session", secret: process.env.SESSION_SECRET || "development-only-secret-change-this-now", resave: false, saveUninitialized: false, cookie: { httpOnly: true, secure: process.env.COOKIE_SECURE === "true" ? true : "auto", sameSite: "lax", maxAge: 1000 * 60 * 60 * 12 } }));
 
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false });

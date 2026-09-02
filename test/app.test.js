@@ -18,8 +18,10 @@ test("store keeps client accounts separated", async () => {
   await store.init({ adminEmail: "admin@test.com", adminPassword: "LongPassword123!" });
   const one = await store.createClient({ name: "Client One", email: "one@test.com", password: "LongPassword123!" });
   const two = await store.createClient({ name: "Client Two", email: "two@test.com", password: "LongPassword123!" });
-  store.createAccount({ ownerId: one.id, label: "Sales", phone: "+923001111111" });
-  store.createAccount({ ownerId: two.id, label: "Support", phone: "+923002222222" });
+  const oneWorkspace = store.createWorkspace({ ownerId: one.id, name: "Client One", planId: "team" });
+  const twoWorkspace = store.createWorkspace({ ownerId: two.id, name: "Client Two", planId: "team" });
+  store.createAccount({ ownerId: one.id, workspaceId: oneWorkspace.id, label: "Sales", phone: "+923001111111" });
+  store.createAccount({ ownerId: two.id, workspaceId: twoWorkspace.id, label: "Support", phone: "+923002222222" });
   assert.equal(store.listAccounts(store.findUser(one.id)).length, 1);
   assert.equal(store.listAccounts(store.findUser(two.id))[0].label, "Support");
   assert.equal(store.listAccounts(store.data.users.find((user) => user.role === "admin")).length, 2);
@@ -61,8 +63,10 @@ test("removing an account leaves other accounts intact", async () => {
   await store.init({ adminEmail: "admin@test.com", adminPassword: "AdminPassword123!" });
   const one = await store.createClient({ name: "One", email: "one@test.com", password: "Password123!" });
   const two = await store.createClient({ name: "Two", email: "two@test.com", password: "Password123!" });
-  const first = store.createAccount({ ownerId: one.id, label: "One WA", phone: "+923001111111" });
-  const second = store.createAccount({ ownerId: two.id, label: "Two WA", phone: "+923002222222" });
+  const oneWorkspace = store.createWorkspace({ ownerId: one.id, name: "One", planId: "team" });
+  const twoWorkspace = store.createWorkspace({ ownerId: two.id, name: "Two", planId: "team" });
+  const first = store.createAccount({ ownerId: one.id, workspaceId: oneWorkspace.id, label: "One WA", phone: "+923001111111" });
+  const second = store.createAccount({ ownerId: two.id, workspaceId: twoWorkspace.id, label: "Two WA", phone: "+923002222222" });
   assert.equal(store.deleteAccount(first.id).id, first.id);
   assert.equal(store.findAccount(first.id), undefined);
   assert.equal(store.findAccount(second.id).id, second.id);

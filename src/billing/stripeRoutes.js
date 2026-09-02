@@ -1,7 +1,7 @@
 const express = require("express");
-const { stripeConfig, assertStripeConfigured, mapStripeStatus, stripePlanLookup } = require("./stripe");
+const { stripeConfig, assertStripeConfigured, assertStripeWebhookConfigured, mapStripeStatus, stripePlanLookup, createStripeClient, findStripePrice, stripeObjectId } = require("./stripe");
 
-function createStripeRouter({ store }) {
+function createStripeRouter({ store, stripeFactory = createStripeClient }) {
   const router = express.Router();
 
   router.post("/token-test", (req, res) => {
@@ -15,30 +15,69 @@ function createStripeRouter({ store }) {
     }
   });
 
-  router.post("/checkout", (req, res) => {
+  router.post("/checkout", async (req, res) => {
     const workspaceId = String(req.body.workspaceId || "");
     const workspace = store.findWorkspace(workspaceId);
     if (!workspace) return res.status(404).json({ error: "Workspace not found" });
     try {
-      assertStripeConfigured(stripeConfig());
+      const config = stripeConfig();
+      assertStripeConfigured(config);
       const lookupKey = stripePlanLookup(workspace.planId);
-      store.updateWorkspace(workspace.id, { billingProvider: "stripe", billingStatus: "pending", billingPlanId: workspace.planId });
-      store.addAudit(req.user.id, "billing.stripe.checkout.requested", { workspaceId, lookupKey });
-      res.status(202).json({ ok: true, provider: "stripe", lookupKey, message: "Stripe SDK checkout creation is ready to wire after installing stripe package." });
+      const stripe = stripeFactory(config);
+      const price = await findStripePrice(stripe, workspace.planId);
+      const metadata = { workspaceId: workspace.id, planId: workspace.planId };
+      const session = await stripe.checkout.sessions.create({
+        mode: "subscription",
+        line_items: [{ price: price.id, quantity: 1 }],
+        success_url: config.successUrl || `${req.protocol}://${req.get("host")}/?billing=success&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: config.cancelUrl || `${req.protocol}://${req.get("host")}/?billing=canceled`,
+        client_reference_id: workspace.id,
+        customer: workspace.billingCustomerId || undefined,
+        metadata,
+        subscription_data: { metadata }
+      });
+      store.updateWorkspace(workspace.id, { billingProvider: "stripe", billingStatus: "pending", billingPlanId: workspace.planId, billingCustomerId: stripeObjectId(session.customer) || workspace.billingCustomerId });
+      store.addAudit(req.user.id, "billing.stripe.checkout.created", { workspaceId, lookupKey, sessionId: session.id });
+      res.status(201).json({ ok: true, provider: "stripe", lookupKey, sessionId: session.id, url: session.url });
     } catch (error) {
       store.addAudit(req.user.id, "billing.stripe.checkout.failed", { workspaceId, error: error.message });
       res.status(400).json({ error: error.message });
     }
   });
 
-  router.post("/webhook", (req, res) => {
-    const status = req.body?.status || req.body?.data?.object?.status;
-    const workspaceId = req.body?.metadata?.workspaceId || req.body?.data?.object?.metadata?.workspaceId;
-    if (workspaceId && status && store.findWorkspace(workspaceId)) {
-      store.updateWorkspace(workspaceId, { billingProvider: "stripe", billingStatus: mapStripeStatus(status) });
+  router.post("/webhook", async (req, res) => {
+    try {
+      const config = stripeConfig();
+      assertStripeWebhookConfigured(config);
+      const signature = req.get("stripe-signature");
+      if (!signature || !req.rawBody) throw new Error("Stripe webhook signature or raw request body is missing");
+      const stripe = stripeFactory(config);
+      const event = stripe.webhooks.constructEvent(req.rawBody, signature, config.webhookSecret);
+      const object = event.data?.object || {};
+      let workspaceId = object.metadata?.workspaceId || object.client_reference_id;
+      let subscription = object;
+      if (event.type === "checkout.session.completed" && object.subscription) {
+        subscription = await stripe.subscriptions.retrieve(stripeObjectId(object.subscription));
+        workspaceId = workspaceId || subscription.metadata?.workspaceId;
+      }
+      const workspace = workspaceId && store.findWorkspace(workspaceId);
+      if (workspace && (event.type === "checkout.session.completed" || event.type.startsWith("customer.subscription."))) {
+        const periodEnd = subscription.current_period_end ? new Date(subscription.current_period_end * 1000).toISOString() : null;
+        store.updateWorkspace(workspaceId, {
+          billingProvider: "stripe",
+          billingStatus: mapStripeStatus(subscription.status || object.payment_status),
+          billingCustomerId: stripeObjectId(object.customer || subscription.customer),
+          billingSubscriptionId: stripeObjectId(object.subscription || subscription),
+          billingPlanId: subscription.metadata?.planId || object.metadata?.planId || workspace.planId,
+          currentPeriodEnd: periodEnd
+        });
+      }
+      store.addAudit("system", "billing.stripe.webhook.processed", { eventId: event.id, type: event.type, workspaceId: workspaceId || null });
+      res.json({ received: true });
+    } catch (error) {
+      store.addAudit("system", "billing.stripe.webhook.rejected", { error: error.message });
+      res.status(400).json({ error: error.message });
     }
-    store.addAudit("system", "billing.stripe.webhook.received", { workspaceId: workspaceId || null, status: status || null });
-    res.json({ ok: true });
   });
 
   return router;
