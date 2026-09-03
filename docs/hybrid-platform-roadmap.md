@@ -12,6 +12,14 @@ Build one multi-tenant dashboard that supports:
 
 OpenWA is an unofficial WhatsApp engine. The product must display account-risk guidance, enforce opt-in and suppression rules, and keep an official WhatsApp Cloud API adapter possible for regulated or higher-scale customers.
 
+### Locked provider decision
+
+- GREEN-API is not a runtime dependency and no customer data or credentials are sent to it.
+- Self-hosted OpenWA is the automation and synchronization engine behind an internal adapter.
+- The Windows browser worker remains the manual messaging and voice/video calling engine.
+- PostgreSQL is the canonical source of truth for normalized messages, call events, consent, and connector synchronization.
+- Provider-specific identifiers never become public API identifiers; this keeps a future official WhatsApp Cloud API adapter possible.
+
 ## Target architecture
 
 ```text
