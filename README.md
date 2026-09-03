@@ -4,6 +4,8 @@ A Windows-first MVP for managing client workspaces, multiple WhatsApp Web number
 
 ## Product direction
 
+The implementation plan for the combined manual, automation, bulk messaging, and CRM platform is in [docs/hybrid-platform-roadmap.md](docs/hybrid-platform-roadmap.md).
+
 The product is moving toward this structure:
 
 ```text
