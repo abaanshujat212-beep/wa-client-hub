@@ -4,13 +4,13 @@ const { stripeConfig, assertStripeConfigured, assertStripeWebhookConfigured, map
 function createStripeRouter({ store, stripeFactory = createStripeClient }) {
   const router = express.Router();
 
-  router.post("/token-test", (req, res) => {
+  router.post("/token-test", async (req, res) => {
     try {
       assertStripeConfigured(stripeConfig());
-      store.addAudit(req.user.id, "billing.stripe.token_test", { ok: true });
+      await store.addAudit(req.user.id, "billing.stripe.token_test", { ok: true });
       res.json({ ok: true });
     } catch (error) {
-      store.addAudit(req.user.id, "billing.stripe.token_test", { ok: false, error: error.message });
+      await store.addAudit(req.user.id, "billing.stripe.token_test", { ok: false, error: error.message });
       res.status(400).json({ error: error.message });
     }
   });
@@ -36,11 +36,11 @@ function createStripeRouter({ store, stripeFactory = createStripeClient }) {
         metadata,
         subscription_data: { metadata }
       });
-      store.updateWorkspace(workspace.id, { billingProvider: "stripe", billingStatus: "pending", billingPlanId: workspace.planId, billingCustomerId: stripeObjectId(session.customer) || workspace.billingCustomerId });
-      store.addAudit(req.user.id, "billing.stripe.checkout.created", { workspaceId, lookupKey, sessionId: session.id });
+      await store.updateWorkspace(workspace.id, { billingProvider: "stripe", billingStatus: "pending", billingPlanId: workspace.planId, billingCustomerId: stripeObjectId(session.customer) || workspace.billingCustomerId });
+      await store.addAudit(req.user.id, "billing.stripe.checkout.created", { workspaceId, lookupKey, sessionId: session.id });
       res.status(201).json({ ok: true, provider: "stripe", lookupKey, sessionId: session.id, url: session.url });
     } catch (error) {
-      store.addAudit(req.user.id, "billing.stripe.checkout.failed", { workspaceId, error: error.message });
+      await store.addAudit(req.user.id, "billing.stripe.checkout.failed", { workspaceId, error: error.message });
       res.status(400).json({ error: error.message });
     }
   });
@@ -63,7 +63,7 @@ function createStripeRouter({ store, stripeFactory = createStripeClient }) {
       const workspace = workspaceId && store.findWorkspace(workspaceId);
       if (workspace && (event.type === "checkout.session.completed" || event.type.startsWith("customer.subscription."))) {
         const periodEnd = subscription.current_period_end ? new Date(subscription.current_period_end * 1000).toISOString() : null;
-        store.updateWorkspace(workspaceId, {
+        await store.updateWorkspace(workspaceId, {
           billingProvider: "stripe",
           billingStatus: mapStripeStatus(subscription.status || object.payment_status),
           billingCustomerId: stripeObjectId(object.customer || subscription.customer),
@@ -72,10 +72,10 @@ function createStripeRouter({ store, stripeFactory = createStripeClient }) {
           currentPeriodEnd: periodEnd
         });
       }
-      store.addAudit("system", "billing.stripe.webhook.processed", { eventId: event.id, type: event.type, workspaceId: workspaceId || null });
+      await store.addAudit("system", "billing.stripe.webhook.processed", { eventId: event.id, type: event.type, workspaceId: workspaceId || null });
       res.json({ received: true });
     } catch (error) {
-      store.addAudit("system", "billing.stripe.webhook.rejected", { error: error.message });
+      await store.addAudit("system", "billing.stripe.webhook.rejected", { error: error.message });
       res.status(400).json({ error: error.message });
     }
   });

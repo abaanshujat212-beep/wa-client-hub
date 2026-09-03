@@ -15,13 +15,9 @@ Current MVP stores data in `data/store.json`. Production should move to PostgreS
 
 ## Selected stack
 
-The project uses `node-postgres` (`pg`) with versioned SQL migrations. The first migration is the canonical schema in `docs/schema.sql`; applied migration checksums are recorded in `schema_migrations` and protected by a PostgreSQL advisory lock.
+The project uses `node-postgres` (`pg`) with versioned SQL migrations. The first migration is the canonical schema in `docs/schema.sql`; applied migration checksums are recorded in `schema_migrations` and protected by a PostgreSQL advisory lock. JSON remains the zero-dependency local development default; production selects PostgreSQL with `STORE_DRIVER=postgres`.
 
-- Prisma + PostgreSQL
-- Drizzle + PostgreSQL
-- node-postgres with SQL migrations
-
-JSON remains the local development default during the route/repository transition.
+PostgreSQL runtime mutations are serialized, applied transactionally, and rolled back in memory if persistence fails. Existing normalized conversation/message/call data is preserved when legacy workspace data changes. Run one application writer replica during this transitional repository implementation; horizontal multi-writer scaling will move each mutation to targeted SQL transactions in the control-plane phase.
 
 ## Migration steps
 
@@ -32,19 +28,26 @@ JSON remains the local development default during the route/repository transitio
 5. Add JSON import script: ✅
    - reads `data/store.json`
    - inserts users, workspaces, members, accounts, plans, invites, audit logs
-6. Add repository/storage interface: in progress
+6. Add repository/storage interface: ✅
    - JSON store for local MVP
    - PostgreSQL store for production
-7. Update tests to use isolated test database or test store. Integration foundation added; runtime cutover remains.
+7. Update tests to use isolated test database or test store. ✅
+8. Wire server startup and durable sessions to PostgreSQL. ✅
+9. Add JSON rollback export plus native backup/restore commands. ✅
 
 ## Commands
 
 ```powershell
 npm run db:migrate
 npm run db:import-json
+npm run db:export-json
 ```
 
 Import refuses a populated database by default. A deliberate replacement requires `npm run db:import-json -- --replace`. Take and verify a backup before using replacement against any non-test database.
+
+Native PostgreSQL backups and restores are available through `scripts/backup-postgres.ps1` and `scripts/restore-postgres.ps1`. Restore requires the explicit `-ConfirmRestore` switch. Test restores against a separate database before any production cutover.
+
+When PostgreSQL is selected, Express sessions use the `user_sessions` table through `connect-pg-simple`. Application shutdown drains HTTP connections and closes the database pool.
 
 ## Data mapping
 
@@ -72,7 +75,5 @@ Import refuses a populated database by default. A deliberate replacement require
 
 ```env
 DATABASE_URL=postgresql://user:password@host:5432/wa_client_hub
-STORE_DRIVER=json
-# Switch only after the async API repository cutover is complete:
-# STORE_DRIVER=postgres
+STORE_DRIVER=postgres
 ```

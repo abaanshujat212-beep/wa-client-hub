@@ -12,7 +12,7 @@ async function main() {
   const repository = new PostgresRepository();
   try {
     await repository.init();
-    await repository.replaceLegacyState(data, { requireEmpty: !allowReplace });
+    await repository.replaceLegacyState(data, { requireEmpty: !allowReplace, destructiveReplace: allowReplace });
     const imported = await repository.loadLegacyState();
     console.log(`Imported ${imported.users.length} users, ${imported.workspaces.length} workspaces, ${imported.accounts.length} WhatsApp numbers, and ${imported.audit.length} audit events`);
   } finally { await repository.close(); }

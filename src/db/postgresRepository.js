@@ -44,7 +44,7 @@ class PostgresRepository {
     };
   }
 
-  async replaceLegacyState(data, { requireEmpty = true } = {}) {
+  async replaceLegacyState(data, { requireEmpty = true, destructiveReplace = false } = {}) {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -53,19 +53,32 @@ class PostgresRepository {
         const existing = await client.query('SELECT EXISTS (SELECT 1 FROM users) AS populated');
         if (existing.rows[0].populated) throw new Error('PostgreSQL store is not empty; import refused');
       }
-      await client.query('TRUNCATE audit_logs, invites, workspace_members, whatsapp_numbers, workspace_features, provider_connections, workspaces, plans, users CASCADE');
-      for (const plan of data.plans?.length ? data.plans : DEFAULT_PLANS) await client.query('INSERT INTO plans (id,name,workspace_limit,number_limit,user_limit,custom) VALUES ($1,$2,$3,$4,$5,$6)', [plan.id, plan.name, plan.workspaceLimit, plan.numberLimit, plan.userLimit, Boolean(plan.custom)]);
-      for (const user of data.users || []) await client.query('INSERT INTO users (id,name,email,password_hash,role,active,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)', [user.id, user.name, user.email, user.passwordHash, user.role, user.active !== false, user.createdAt]);
-      for (const row of data.workspaces || []) await client.query(`INSERT INTO workspaces (id,owner_id,name,plan_id,status,billing_provider,billing_status,billing_customer_id,billing_subscription_id,billing_plan_id,current_period_end,migrated_default,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, [row.id,row.ownerId,row.name,row.planId,row.status || 'active',row.billingProvider || 'manual',row.billingStatus || 'manual',row.billingCustomerId || null,row.billingSubscriptionId || null,row.billingPlanId || null,row.currentPeriodEnd || null,Boolean(row.migratedDefault),row.createdAt]);
-      for (const row of data.workspaceMembers || []) await client.query('INSERT INTO workspace_members (id,workspace_id,user_id,role,created_at) VALUES ($1,$2,$3,$4,$5)', [row.id,row.workspaceId,row.userId,row.role,row.createdAt]);
-      for (const row of data.accounts || []) await client.query('INSERT INTO whatsapp_numbers (id,owner_id,workspace_id,label,phone,created_at,last_launched_at) VALUES ($1,$2,$3,$4,$5,$6,$7)', [row.id,row.ownerId,row.workspaceId,row.label,row.phone,row.createdAt,row.lastLaunchedAt || null]);
-      for (const row of data.invites || []) await client.query('INSERT INTO invites (id,workspace_id,email,name,role,token_hash,status,created_by,created_at,expires_at,accepted_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)', [row.id,row.workspaceId,row.email,row.name,row.role,row.tokenHash,row.status,row.createdBy || null,row.createdAt,row.expiresAt,row.acceptedAt || null]);
-      for (const row of data.audit || []) await client.query('INSERT INTO audit_logs (id,user_id,action,details,created_at) VALUES ($1,$2,$3,$4,$5)', [row.id,row.userId || null,row.action,row.details || {},row.createdAt]);
+      if (destructiveReplace) await client.query('TRUNCATE audit_logs, invites, workspace_members, whatsapp_numbers, workspace_features, provider_connections, workspaces, plans, users CASCADE');
+      for (const plan of data.plans?.length ? data.plans : DEFAULT_PLANS) await client.query('INSERT INTO plans (id,name,workspace_limit,number_limit,user_limit,custom) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, workspace_limit=EXCLUDED.workspace_limit, number_limit=EXCLUDED.number_limit, user_limit=EXCLUDED.user_limit, custom=EXCLUDED.custom', [plan.id, plan.name, plan.workspaceLimit, plan.numberLimit, plan.userLimit, Boolean(plan.custom)]);
+      for (const user of data.users || []) await client.query('INSERT INTO users (id,name,email,password_hash,role,active,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, email=EXCLUDED.email, password_hash=EXCLUDED.password_hash, role=EXCLUDED.role, active=EXCLUDED.active', [user.id, user.name, user.email, user.passwordHash, user.role, user.active !== false, user.createdAt]);
+      for (const row of data.workspaces || []) await client.query(`INSERT INTO workspaces (id,owner_id,name,plan_id,status,billing_provider,billing_status,billing_customer_id,billing_subscription_id,billing_plan_id,current_period_end,migrated_default,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT (id) DO UPDATE SET owner_id=EXCLUDED.owner_id, name=EXCLUDED.name, plan_id=EXCLUDED.plan_id, status=EXCLUDED.status, billing_provider=EXCLUDED.billing_provider, billing_status=EXCLUDED.billing_status, billing_customer_id=EXCLUDED.billing_customer_id, billing_subscription_id=EXCLUDED.billing_subscription_id, billing_plan_id=EXCLUDED.billing_plan_id, current_period_end=EXCLUDED.current_period_end, migrated_default=EXCLUDED.migrated_default`, [row.id,row.ownerId,row.name,row.planId,row.status || 'active',row.billingProvider || 'manual',row.billingStatus || 'manual',row.billingCustomerId || null,row.billingSubscriptionId || null,row.billingPlanId || null,row.currentPeriodEnd || null,Boolean(row.migratedDefault),row.createdAt]);
+      for (const row of data.workspaceMembers || []) await client.query('INSERT INTO workspace_members (id,workspace_id,user_id,role,created_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO UPDATE SET workspace_id=EXCLUDED.workspace_id, user_id=EXCLUDED.user_id, role=EXCLUDED.role', [row.id,row.workspaceId,row.userId,row.role,row.createdAt]);
+      for (const row of data.accounts || []) await client.query('INSERT INTO whatsapp_numbers (id,owner_id,workspace_id,label,phone,created_at,last_launched_at) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id) DO UPDATE SET owner_id=EXCLUDED.owner_id, workspace_id=EXCLUDED.workspace_id, label=EXCLUDED.label, phone=EXCLUDED.phone, last_launched_at=EXCLUDED.last_launched_at', [row.id,row.ownerId,row.workspaceId,row.label,row.phone,row.createdAt,row.lastLaunchedAt || null]);
+      for (const row of data.invites || []) await client.query('INSERT INTO invites (id,workspace_id,email,name,role,token_hash,status,created_by,created_at,expires_at,accepted_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (id) DO UPDATE SET workspace_id=EXCLUDED.workspace_id, email=EXCLUDED.email, name=EXCLUDED.name, role=EXCLUDED.role, token_hash=EXCLUDED.token_hash, status=EXCLUDED.status, created_by=EXCLUDED.created_by, expires_at=EXCLUDED.expires_at, accepted_at=EXCLUDED.accepted_at', [row.id,row.workspaceId,row.email,row.name,row.role,row.tokenHash,row.status,row.createdBy || null,row.createdAt,row.expiresAt,row.acceptedAt || null]);
+      for (const row of data.audit || []) await client.query('INSERT INTO audit_logs (id,user_id,action,details,created_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO NOTHING', [row.id,row.userId || null,row.action,row.details || {},row.createdAt]);
+      if (!destructiveReplace) {
+        await client.query('DELETE FROM audit_logs WHERE NOT (id = ANY($1::text[]))', [(data.audit || []).map((row) => row.id)]);
+        await client.query('DELETE FROM invites WHERE NOT (id = ANY($1::text[]))', [(data.invites || []).map((row) => row.id)]);
+        await client.query('DELETE FROM workspace_members WHERE NOT (id = ANY($1::text[]))', [(data.workspaceMembers || []).map((row) => row.id)]);
+        await client.query('DELETE FROM whatsapp_numbers WHERE NOT (id = ANY($1::text[]))', [(data.accounts || []).map((row) => row.id)]);
+        await client.query('DELETE FROM workspaces WHERE NOT (id = ANY($1::text[]))', [(data.workspaces || []).map((row) => row.id)]);
+        await client.query('DELETE FROM users WHERE NOT (id = ANY($1::text[]))', [(data.users || []).map((row) => row.id)]);
+        await client.query('DELETE FROM plans WHERE NOT (id = ANY($1::text[]))', [(data.plans?.length ? data.plans : DEFAULT_PLANS).map((row) => row.id)]);
+      }
       await client.query('COMMIT');
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
     } finally { client.release(); }
+  }
+
+  async snapshotLegacyState() {
+    return this.loadLegacyState();
   }
 }
 

@@ -7,10 +7,10 @@ function createWhopRouter({ store }) {
   router.post("/token-test", async (req, res) => {
     try {
       assertWhopConfigured(whopConfig());
-      store.addAudit(req.user.id, "billing.whop.token_test", { ok: true });
+      await store.addAudit(req.user.id, "billing.whop.token_test", { ok: true });
       res.json({ ok: true });
     } catch (error) {
-      store.addAudit(req.user.id, "billing.whop.token_test", { ok: false, error: error.message });
+      await store.addAudit(req.user.id, "billing.whop.token_test", { ok: false, error: error.message });
       res.status(400).json({ error: error.message });
     }
   });
@@ -18,10 +18,10 @@ function createWhopRouter({ store }) {
   router.get("/membership/:membershipId", async (req, res) => {
     try {
       const membership = await getWhopMembership(req.params.membershipId);
-      store.addAudit(req.user.id, "billing.whop.membership.inquired", { membershipId: req.params.membershipId });
+      await store.addAudit(req.user.id, "billing.whop.membership.inquired", { membershipId: req.params.membershipId });
       res.json({ membership, appStatus: mapWhopStatus(membership.status || membership.data?.status) });
     } catch (error) {
-      store.addAudit(req.user.id, "billing.whop.membership.failed", { membershipId: req.params.membershipId, error: error.message });
+      await store.addAudit(req.user.id, "billing.whop.membership.failed", { membershipId: req.params.membershipId, error: error.message });
       res.status(400).json({ error: error.message });
     }
   });
@@ -32,9 +32,9 @@ function createWhopRouter({ store }) {
     const workspaceId = req.body?.metadata?.workspaceId || req.body?.data?.metadata?.workspaceId;
     if (workspaceId && status) {
       const workspace = store.findWorkspace(workspaceId);
-      if (workspace) store.updateWorkspace(workspaceId, { billingProvider: "whop", billingStatus: mapWhopStatus(status) });
+      if (workspace) await store.updateWorkspace(workspaceId, { billingProvider: "whop", billingStatus: mapWhopStatus(status) });
     }
-    store.addAudit("system", "billing.whop.webhook.received", { workspaceId: workspaceId || null, status: status || null });
+    await store.addAudit("system", "billing.whop.webhook.received", { workspaceId: workspaceId || null, status: status || null });
     res.json({ ok: true });
   });
 
