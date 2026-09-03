@@ -10,6 +10,7 @@ const helmet = require("helmet");
 const { rateLimit } = require("express-rate-limit");
 const bcrypt = require("bcryptjs");
 const { createStore } = require("./storeFactory");
+const { createRuntimeDependencies } = require("./runtimeDependencies");
 const BrowserLauncher = require("./launcher");
 const { assertSecurityConfig } = require("./security");
 const { systemHealth } = require("./monitoring");
@@ -23,6 +24,7 @@ const rootDir = path.resolve(__dirname, "..");
 const app = express();
 const store = createStore(rootDir);
 const launcher = new BrowserLauncher(rootDir);
+const dependencies = createRuntimeDependencies();
 const FileStore = FileStoreFactory(session);
 const PgStore = PgStoreFactory(session);
 const port = Number(process.env.PORT || 3131);
@@ -85,9 +87,13 @@ app.post("/api/accounts/:id/launch", requireAuth, async (req, res) => { const ac
 app.post("/api/accounts/:id/close", requireAuth, async (req, res) => { const account = store.findAccount(req.params.id); if (!account || !canAccess(req.user, account)) return res.status(404).json({ error: "Account not found" }); try { const closed = await launcher.close(account.id); await store.addAudit(req.user.id, "account.closed", { accountId: account.id, workspaceId: account.workspaceId }); res.json({ ok: true, closed }); } catch (error) { res.status(500).json({ error: "Could not close browser session" }); } });
 
 app.get("/api/health", (req, res) => res.json({ ok: true, platform: process.platform, time: new Date().toISOString() }));
+app.get("/api/ready", async (_req, res) => {
+  const readiness = await dependencies.readiness(store);
+  res.status(readiness.ok ? 200 : 503).json({ ...readiness, time: new Date().toISOString() });
+});
 app.use(express.static(path.join(rootDir, "public"), { extensions: ["html"] }));
 app.get("/{*path}", (req, res) => res.sendFile(path.join(rootDir, "public", "index.html")));
-async function start() { const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com"; const adminPassword = process.env.ADMIN_PASSWORD || "ChangeMeNow123!"; assertSecurityConfig(process.env); await store.init({ adminEmail, adminPassword }); return app.listen(port, "0.0.0.0", () => console.log(`WA Client Hub running at http://localhost:${port} using ${store.driver} storage`)); }
-async function runMain() { const server = await start(); let closing = false; const shutdown = async () => { if (closing) return; closing = true; await new Promise((resolve) => server.close(resolve)); if (typeof store.close === "function") await store.close(); process.exit(0); }; process.once("SIGINT", shutdown); process.once("SIGTERM", shutdown); }
+async function start() { const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com"; const adminPassword = process.env.ADMIN_PASSWORD || "ChangeMeNow123!"; assertSecurityConfig(process.env); await store.init({ adminEmail, adminPassword }); await dependencies.connect(); return app.listen(port, "0.0.0.0", () => console.log(`WA Client Hub running at http://localhost:${port} using ${store.driver} storage`)); }
+async function runMain() { const server = await start(); let closing = false; const shutdown = async () => { if (closing) return; closing = true; await new Promise((resolve) => server.close(resolve)); await dependencies.close(); if (typeof store.close === "function") await store.close(); process.exit(0); }; process.once("SIGINT", shutdown); process.once("SIGTERM", shutdown); }
 if (require.main === module) runMain().catch((error) => { console.error(error); process.exit(1); });
-module.exports = { app, store, launcher, start };
+module.exports = { app, store, launcher, dependencies, start };

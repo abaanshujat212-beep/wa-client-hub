@@ -1,0 +1,81 @@
+name: wa-client-hub
+
+x-app-environment: &app-environment
+  NODE_ENV: ${NODE_ENV:-development}
+  PORT: 3131
+  STORE_DRIVER: postgres
+  DATABASE_URL: postgresql://${POSTGRES_USER:-wa_hub}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-wa_hub}
+  REDIS_URL: redis://redis:6379
+  SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET in .env}
+  ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+  ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+  COOKIE_SECURE: ${COOKIE_SECURE:-false}
+  APP_NAME: ${APP_NAME:-WA Client Hub}
+  REMOTE_DESKTOP_URL: ${REMOTE_DESKTOP_URL:-}
+
+services:
+  postgres:
+    image: postgres:16.10-bookworm
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-wa_hub}
+      POSTGRES_USER: ${POSTGRES_USER:-wa_hub}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4.5-bookworm
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis_data:/data
+    networks: [data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  migrate:
+    build: .
+    command: ["node", "src/db/migrate.js"]
+    environment: *app-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [data]
+    restart: "no"
+
+  app:
+    build: .
+    environment: *app-environment
+    ports:
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-3131}:3131"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    networks: [frontend, data]
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid
+      - /app/runtime:uid=10001,gid=10001,mode=0700,noexec,nosuid
+    restart: unless-stopped
+
+networks:
+  frontend:
+  data:
+    internal: true
+
+volumes:
+  postgres_data:
+  redis_data:
