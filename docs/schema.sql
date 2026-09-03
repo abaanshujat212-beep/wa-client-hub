@@ -25,6 +25,13 @@ CREATE TABLE workspaces (
   name TEXT NOT NULL,
   plan_id TEXT NOT NULL REFERENCES plans(id),
   status TEXT NOT NULL DEFAULT 'active',
+  billing_provider TEXT NOT NULL DEFAULT 'manual',
+  billing_status TEXT NOT NULL DEFAULT 'manual',
+  billing_customer_id TEXT,
+  billing_subscription_id TEXT,
+  billing_plan_id TEXT,
+  current_period_end TIMESTAMPTZ,
+  migrated_default BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
