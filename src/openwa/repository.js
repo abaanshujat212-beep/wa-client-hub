@@ -96,7 +96,7 @@ class OpenWaRepository {
         await this.setStatus(connection.id, ["connected", "authenticated", "ready"].includes(next) ? "active" : "offline");
       }
       await this.pool.query("UPDATE webhook_receipts SET status='processed',processed_at=now() WHERE id=$1", [receiptId]);
-      return { duplicate: false, receiptId };
+      return { duplicate: false, receiptId, workspaceId: connection.workspace_id };
     } catch (error) {
       await this.pool.query("UPDATE webhook_receipts SET status=CASE WHEN attempt_count>=4 THEN 'dead_letter' ELSE 'failed' END,error=$2 WHERE id=$1", [receiptId, error.message]);
       throw error;

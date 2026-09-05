@@ -22,12 +22,12 @@ WA Client Hub dashboard only opens WhatsApp Web on the Windows host. For real cl
 Set these in `.env`:
 
 ```env
-REMOTE_DESKTOP_URL=https://your-guacamole-or-rdp-gateway.example.com
+REMOTE_DESKTOP_URL=https://your-guacamole-or-rdp-gateway.example.com/client/{workspaceId}/{numberId}
 REMOTE_DESKTOP_LABEL=Open Remote Desktop
 REMOTE_DESKTOP_HELP=Use this to access the Windows desktop where WhatsApp Web opens. Do not expose raw RDP publicly.
 ```
 
-When `REMOTE_DESKTOP_URL` is set, dashboard workspace cards show an **Open Remote Desktop** button.
+The unified inbox manual-handoff endpoint requires both `{workspaceId}` and `{numberId}` placeholders. It replaces them only after checking that the signed-in user can access the conversation workspace, and records an audit event. A generic shared URL is rejected because it cannot guarantee that an agent opens only the assigned browser session. The Windows worker/Guacamole layer must enforce the same mapping server-side.
 
 ## Audio / microphone checklist
 

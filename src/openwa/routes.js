@@ -18,13 +18,13 @@ function normalizeEnvelope(body = {}) {
   return { webhookId: body.webhookId, sessionId: body.sessionId, event, payload, timestamp: body.timestamp || body.ts };
 }
 
-function createOpenWaRouter({ store, repository, client, webhookSecret = process.env.OPENWA_WEBHOOK_SECRET || "", requireAuth, requireManage }) {
+function createOpenWaRouter({ store, repository, client, events, webhookSecret = process.env.OPENWA_WEBHOOK_SECRET || "", requireAuth, requireManage }) {
   const router = express.Router();
   router.post("/webhook", async (req, res) => {
     if (!safeSecretEqual(req.get("x-webhook-secret"), webhookSecret)) return res.status(401).json({ error: "Invalid OpenWA webhook secret" });
     const envelope = normalizeEnvelope(req.body);
     if (!envelope.sessionId || !envelope.event || !envelope.payload) return res.status(400).json({ error: "Invalid OpenWA webhook envelope" });
-    try { const result = await repository.ingest(envelope, true); res.status(result.duplicate ? 200 : 202).json({ ok: true, duplicate: result.duplicate }); }
+    try { const result = await repository.ingest(envelope, true); if (!result.duplicate && events) events.publish(result.workspaceId, "message.changed", { event: envelope.event }); res.status(result.duplicate ? 200 : 202).json({ ok: true, duplicate: result.duplicate }); }
     catch (error) { res.status(error.message === "Unknown OpenWA session" ? 404 : 422).json({ error: error.message }); }
   });
 
@@ -63,6 +63,7 @@ function createOpenWaRouter({ store, repository, client, webhookSecret = process
       if (existing) return res.status(200).json({ message: { id: existing.id, externalMessageId: existing.external_message_id, status: existing.status }, duplicate: true });
       const externalMessageId = await client.sendText(to, text);
       const message = await repository.recordOutbound({ connection, to, body: text, type: "text", externalMessageId: String(externalMessageId || "") || null, idempotencyKey });
+      if (events) events.publish(account.workspaceId, "message.changed", { messageId: message.id });
       await store.addAudit(req.user.id, "openwa.message.sent", { workspaceId: account.workspaceId, numberId: account.id, messageId: message.id });
       res.status(202).json({ message });
     } catch (error) { res.status(502).json({ error: error.message }); }
@@ -84,6 +85,7 @@ function createOpenWaRouter({ store, repository, client, webhookSecret = process
       const externalMessageId = await client.sendFile(to, file, filename, caption);
       const mediaType = file.slice(5, file.indexOf("/") > 0 ? file.indexOf("/") : 5);
       const message = await repository.recordOutbound({ connection, to, body: caption, type: ["image", "video", "audio"].includes(mediaType) ? mediaType : "document", externalMessageId: String(externalMessageId || "") || null, idempotencyKey });
+      if (events) events.publish(account.workspaceId, "message.changed", { messageId: message.id });
       await store.addAudit(req.user.id, "openwa.media.sent", { workspaceId: account.workspaceId, numberId: account.id, messageId: message.id });
       res.status(202).json({ message });
     } catch (error) { res.status(502).json({ error: error.message }); }

@@ -6,6 +6,7 @@ const PostgresRepository = require('../src/db/postgresRepository');
 const PostgresStore = require('../src/db/postgresStore');
 const { DEFAULT_PLANS } = require('../src/store');
 const { OpenWaRepository } = require('../src/openwa/repository');
+const { InboxRepository } = require('../src/inbox/repository');
 
 const connectionString = process.env.TEST_DATABASE_URL;
 
@@ -72,6 +73,22 @@ test('PostgreSQL migration and legacy JSON round trip', { skip: !connectionStrin
     assert.deepEqual(await openwa.ingest(envelope), { duplicate: true });
     const normalized = await pool.query("SELECT m.body,m.direction,c.phone_e164 FROM messages m JOIN conversations v ON v.id=m.conversation_id JOIN contacts c ON c.id=v.contact_id WHERE m.external_message_id=$1", [`external-${suffix}`]);
     assert.deepEqual(normalized.rows[0], { body: 'OpenWA inbound', direction: 'inbound', phone_e164: '+923004444444' });
+
+    const inbox = new InboxRepository(pool);
+    const ownInbox = await inbox.listConversations({ workspaceIds: [secondWorkspace.id], search: 'OpenWA', limit: 10 });
+    assert.equal(ownInbox.conversations.length, 1);
+    assert.equal(ownInbox.conversations[0].workspace_id, secondWorkspace.id);
+    assert.equal((await inbox.listConversations({ workspaceIds: [workspaceId], search: 'OpenWA' })).conversations.length, 0);
+    const inboxConversationId = ownInbox.conversations[0].id;
+    const thread = await inbox.listMessages([secondWorkspace.id], inboxConversationId);
+    assert.equal(thread.messages.at(-1).body, 'OpenWA inbound');
+    assert.equal(await inbox.listMessages([workspaceId], inboxConversationId), null);
+    assert.equal((await inbox.markRead([secondWorkspace.id], inboxConversationId)).unread_count, 0);
+    assert.equal((await inbox.assign([secondWorkspace.id], inboxConversationId, second.id)).assigned_user_id, second.id);
+    assert.equal((await inbox.addNote([secondWorkspace.id], inboxConversationId, second.id, 'Follow up')).body, 'Follow up');
+    const tag = await inbox.addTag([secondWorkspace.id], inboxConversationId, 'VIP', '#25d366');
+    assert.equal(tag.name, 'VIP');
+    assert.equal(await inbox.removeTag([secondWorkspace.id], inboxConversationId, tag.id), true);
   } finally {
     await pool.end();
   }
