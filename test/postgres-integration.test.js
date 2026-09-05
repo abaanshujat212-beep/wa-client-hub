@@ -5,6 +5,7 @@ const { Pool } = require('pg');
 const PostgresRepository = require('../src/db/postgresRepository');
 const PostgresStore = require('../src/db/postgresStore');
 const { DEFAULT_PLANS } = require('../src/store');
+const { OpenWaRepository } = require('../src/openwa/repository');
 
 const connectionString = process.env.TEST_DATABASE_URL;
 
@@ -53,6 +54,24 @@ test('PostgreSQL migration and legacy JSON round trip', { skip: !connectionStrin
     assert.ok(persisted.audit.some((row) => row.action === 'runtime.persisted'));
     const canonicalMessage = await pool.query('SELECT body FROM messages WHERE id = $1', [messageId]);
     assert.equal(canonicalMessage.rows[0].body, 'preserve me');
+
+    const openwa = new OpenWaRepository(pool);
+    const connection = await openwa.enable({ workspaceId: secondWorkspace.id, numberId: secondNumber.id, sessionId: `session-${suffix}`, label: 'Runtime WA', riskAcknowledgedBy: second.id });
+    assert.equal((await openwa.connectionForNumber(secondWorkspace.id, secondNumber.id)).id, connection.id);
+    assert.equal(await openwa.connectionForNumber(workspaceId, secondNumber.id), null);
+    const envelope = {
+      webhookId: `webhook-${suffix}`,
+      sessionId: `session-${suffix}`,
+      event: 'message.received',
+      timestamp: Date.now(),
+      payload: { message: { id: `external-${suffix}`, from: '923004444444@c.us', to: '923002222222@c.us', body: 'OpenWA inbound', type: 'chat', timestamp: Math.floor(Date.now() / 1000), fromMe: false } }
+    };
+    const ingested = await openwa.ingest(envelope);
+    assert.equal(ingested.duplicate, false);
+    assert.match(ingested.receiptId, /^[0-9a-f-]{36}$/);
+    assert.deepEqual(await openwa.ingest(envelope), { duplicate: true });
+    const normalized = await pool.query("SELECT m.body,m.direction,c.phone_e164 FROM messages m JOIN conversations v ON v.id=m.conversation_id JOIN contacts c ON c.id=v.contact_id WHERE m.external_message_id=$1", [`external-${suffix}`]);
+    assert.deepEqual(normalized.rows[0], { body: 'OpenWA inbound', direction: 'inbound', phone_e164: '+923004444444' });
   } finally {
     await pool.end();
   }

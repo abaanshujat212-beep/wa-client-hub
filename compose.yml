@@ -12,6 +12,11 @@ x-app-environment: &app-environment
   COOKIE_SECURE: ${COOKIE_SECURE:-false}
   APP_NAME: ${APP_NAME:-WA Client Hub}
   REMOTE_DESKTOP_URL: ${REMOTE_DESKTOP_URL:-}
+  OPENWA_BASE_URL: http://openwa:8080
+  OPENWA_API_KEY: ${OPENWA_API_KEY:-}
+  OPENWA_SESSION_ID: ${OPENWA_SESSION_ID:-primary}
+  OPENWA_WEBHOOK_URL: http://app:3131/api/openwa/webhook
+  OPENWA_WEBHOOK_SECRET: ${OPENWA_WEBHOOK_SECRET:-}
 
 services:
   postgres:
@@ -41,6 +46,24 @@ services:
       interval: 5s
       timeout: 3s
       retries: 12
+    restart: unless-stopped
+
+  openwa:
+    image: openwa/wa-automate@sha256:d31f5a8f59c4890a302294e9834a25f217a973d80339896ef74cf3d35d903cb3
+    profiles: [openwa]
+    init: true
+    environment:
+      W_A_V: 4.76.0
+      WA_PORT: 8080
+      WA_HOST: 0.0.0.0
+      WA_KEY: ${OPENWA_API_KEY:-}
+      WA_SESSION_ID: ${OPENWA_SESSION_ID:-primary}
+      WA_DISABLE_SPINS: "true"
+      WA_NO_KILL_ON_LOGOUT: "true"
+    volumes:
+      - openwa_sessions:/sessions
+    networks: [data, frontend]
+    shm_size: 1gb
     restart: unless-stopped
 
   migrate:
@@ -79,3 +102,4 @@ networks:
 volumes:
   postgres_data:
   redis_data:
+  openwa_sessions:

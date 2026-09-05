@@ -7,6 +7,7 @@ A Windows-first MVP for managing client workspaces, multiple WhatsApp Web number
 The implementation plan for the combined manual, automation, bulk messaging, and CRM platform is in [docs/hybrid-platform-roadmap.md](docs/hybrid-platform-roadmap.md).
 
 The Dockerized PostgreSQL/Redis control plane setup is documented in [docs/docker-control-plane.md](docs/docker-control-plane.md).
+The private OpenWA automation adapter setup and risk controls are documented in [docs/openwa-adapter.md](docs/openwa-adapter.md).
 
 The product is moving toward this structure:
 

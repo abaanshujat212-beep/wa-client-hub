@@ -11,6 +11,9 @@ const { rateLimit } = require("express-rate-limit");
 const bcrypt = require("bcryptjs");
 const { createStore } = require("./storeFactory");
 const { createRuntimeDependencies } = require("./runtimeDependencies");
+const { OpenWaClient } = require("./openwa/client");
+const { OpenWaRepository } = require("./openwa/repository");
+const { createOpenWaRouter } = require("./openwa/routes");
 const BrowserLauncher = require("./launcher");
 const { assertSecurityConfig } = require("./security");
 const { systemHealth } = require("./monitoring");
@@ -25,6 +28,8 @@ const app = express();
 const store = createStore(rootDir);
 const launcher = new BrowserLauncher(rootDir);
 const dependencies = createRuntimeDependencies();
+const openWaClient = new OpenWaClient();
+const openWaRepository = store.driver === "postgres" ? new OpenWaRepository(store.repository.pool) : null;
 const FileStore = FileStoreFactory(session);
 const PgStore = PgStoreFactory(session);
 const port = Number(process.env.PORT || 3131);
@@ -39,7 +44,7 @@ app.use(express.json({ limit: "50kb", verify: (req, _res, buffer) => { if (req.o
 app.use(session({ store: sessionStore, name: "wa_hub_session", secret: process.env.SESSION_SECRET || "development-only-secret-change-this-now", resave: false, saveUninitialized: false, cookie: { httpOnly: true, secure: process.env.COOKIE_SECURE === "true" ? true : "auto", sameSite: "lax", maxAge: 1000 * 60 * 60 * 12 } }));
 
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false });
-function csrf(req, res, next) { if (!req.session.csrfToken) req.session.csrfToken = crypto.randomBytes(24).toString("hex"); const billingWebhook = req.path.startsWith("/api/billing/swich/webhook") || req.path.startsWith("/api/billing/whop/webhook") || req.path.startsWith("/api/billing/stripe/webhook"); if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method) && req.path !== "/api/invites/accept" && !billingWebhook && req.get("x-csrf-token") !== req.session.csrfToken) return res.status(403).json({ error: "Security token is invalid. Refresh and try again." }); next(); }
+function csrf(req, res, next) { if (!req.session.csrfToken) req.session.csrfToken = crypto.randomBytes(24).toString("hex"); const externalWebhook = req.path.startsWith("/api/billing/swich/webhook") || req.path.startsWith("/api/billing/whop/webhook") || req.path.startsWith("/api/billing/stripe/webhook") || req.path === "/api/openwa/webhook"; if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method) && req.path !== "/api/invites/accept" && !externalWebhook && req.get("x-csrf-token") !== req.session.csrfToken) return res.status(403).json({ error: "Security token is invalid. Refresh and try again." }); next(); }
 function requireAuth(req, res, next) { const user = req.session.userId && store.findUser(req.session.userId); if (!user || !user.active) return res.status(401).json({ error: "Please sign in" }); req.user = user; next(); }
 function requireAdmin(req, res, next) { if (req.user.role !== "admin") return res.status(403).json({ error: "Administrator access required" }); next(); }
 function billingAuth(router) { return [(req, res, next) => req.path === "/webhook" ? next() : requireAuth(req, res, () => requireAdmin(req, res, next)), router]; }
@@ -58,6 +63,7 @@ app.post("/api/logout", requireAuth, (req, res) => { const userId = req.user.id;
 app.use("/api/billing/swich", ...billingAuth(createSwichRouter({ store })));
 app.use("/api/billing/whop", ...billingAuth(createWhopRouter({ store })));
 app.use("/api/billing/stripe", ...billingAuth(createStripeRouter({ store })));
+if (openWaRepository) app.use("/api/openwa", createOpenWaRouter({ store, repository: openWaRepository, client: openWaClient, requireAuth, requireManage: canManage }));
 
 app.get("/api/users", requireAuth, requireAdmin, (req, res) => res.json({ users: store.listUsers() }));
 app.get("/api/admin/summary", requireAuth, requireAdmin, (req, res) => res.json(adminSummary(store, launcher)));

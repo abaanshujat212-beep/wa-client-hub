@@ -1,0 +1,4 @@
+services:
+  openwa:
+    ports:
+      - "127.0.0.1:${OPENWA_ENROLL_PORT:-8080}:8080"

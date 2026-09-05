@@ -5,7 +5,8 @@ const { Pool } = require('pg');
 const { databaseConfig, assertDatabaseConfig } = require('./config');
 
 const MIGRATIONS = [
-  { id: '001_canonical_schema', file: path.resolve(__dirname, '..', '..', 'docs', 'schema.sql') }
+  { id: '001_canonical_schema', file: path.resolve(__dirname, '..', '..', 'docs', 'schema.sql') },
+  { id: '002_openwa_adapter', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '002_openwa_adapter.sql') }
 ];
 
 function checksum(sql) {
