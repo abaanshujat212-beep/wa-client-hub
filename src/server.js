@@ -25,6 +25,9 @@ const { CredentialVault } = require("./connectors/vault");
 const { ConnectorRepository } = require("./connectors/repository");
 const { ConnectorWorker } = require("./connectors/worker");
 const { createConnectorRouter } = require("./connectors/routes");
+const { createProviderRouter } = require("./providers/routes");
+const { GenericApiRepository } = require("./generic-api/repository");
+const { createGenericApiRouter } = require("./generic-api/routes");
 const BrowserLauncher = require("./launcher");
 const { assertSecurityConfig } = require("./security");
 const { systemHealth } = require("./monitoring");
@@ -47,6 +50,7 @@ const campaignRepository = store.driver === "postgres" ? new CampaignRepository(
 const campaignWorker = campaignRepository ? new CampaignWorker({ repository: campaignRepository, openWaRepository, openWaClient, redis: dependencies.redis, events: inboxEvents, workspaceLimit: Number(process.env.CAMPAIGN_WORKSPACE_PER_MINUTE || 20), numberLimit: Number(process.env.CAMPAIGN_NUMBER_PER_MINUTE || 10) }) : null;
 const connectorRepository = store.driver === "postgres" ? new ConnectorRepository(store.repository.pool, new CredentialVault({ env: process.env })) : null;
 const connectorWorker = connectorRepository ? new ConnectorWorker({ repository: connectorRepository }) : null;
+const genericApiRepository = store.driver === "postgres" ? new GenericApiRepository(store.repository.pool, { perMinute: Number(process.env.GENERIC_API_PER_MINUTE || 120) }) : null;
 const FileStore = FileStoreFactory(session);
 const PgStore = PgStoreFactory(session);
 const port = Number(process.env.PORT || 3131);
@@ -57,11 +61,11 @@ const sessionStore = store.driver === "postgres"
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(express.json({ limit: "2mb", verify: (req, _res, buffer) => { if (req.originalUrl === "/api/billing/stripe/webhook" || /^\/api\/connectors\/[^/]+\/webhook$/.test(req.originalUrl)) req.rawBody = Buffer.from(buffer); } }));
+app.use(express.json({ limit: "2mb", verify: (req, _res, buffer) => { if (req.originalUrl === "/api/billing/stripe/webhook" || /^\/api\/(connectors|providers)\/[^/]+\/(webhook|shopify|woocommerce|ghl)$/.test(req.originalUrl)) req.rawBody = Buffer.from(buffer); } }));
 app.use(session({ store: sessionStore, name: "wa_hub_session", secret: process.env.SESSION_SECRET || "development-only-secret-change-this-now", resave: false, saveUninitialized: false, cookie: { httpOnly: true, secure: process.env.COOKIE_SECURE === "true" ? true : "auto", sameSite: "lax", maxAge: 1000 * 60 * 60 * 12 } }));
 
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false });
-function csrf(req, res, next) { if (!req.session.csrfToken) req.session.csrfToken = crypto.randomBytes(24).toString("hex"); const externalWebhook = req.path.startsWith("/api/billing/swich/webhook") || req.path.startsWith("/api/billing/whop/webhook") || req.path.startsWith("/api/billing/stripe/webhook") || req.path === "/api/openwa/webhook" || /^\/api\/connectors\/[^/]+\/webhook$/.test(req.path); if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method) && req.path !== "/api/invites/accept" && !externalWebhook && req.get("x-csrf-token") !== req.session.csrfToken) return res.status(403).json({ error: "Security token is invalid. Refresh and try again." }); next(); }
+function csrf(req, res, next) { if (!req.session.csrfToken) req.session.csrfToken = crypto.randomBytes(24).toString("hex"); const externalWebhook = req.path.startsWith("/api/billing/swich/webhook") || req.path.startsWith("/api/billing/whop/webhook") || req.path.startsWith("/api/billing/stripe/webhook") || req.path === "/api/openwa/webhook" || req.path.startsWith("/api/generic/v1/") || /^\/api\/(connectors|providers)\/[^/]+\/(webhook|shopify|woocommerce|ghl)$/.test(req.path); if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method) && req.path !== "/api/invites/accept" && !externalWebhook && req.get("x-csrf-token") !== req.session.csrfToken) return res.status(403).json({ error: "Security token is invalid. Refresh and try again." }); next(); }
 function requireAuth(req, res, next) { const user = req.session.userId && store.findUser(req.session.userId); if (!user || !user.active) return res.status(401).json({ error: "Please sign in" }); req.user = user; next(); }
 function requireAdmin(req, res, next) { if (req.user.role !== "admin") return res.status(403).json({ error: "Administrator access required" }); next(); }
 function billingAuth(router) { return [(req, res, next) => req.path === "/webhook" ? next() : requireAuth(req, res, () => requireAdmin(req, res, next)), router]; }
@@ -84,6 +88,8 @@ if (openWaRepository) app.use("/api/openwa", createOpenWaRouter({ store, reposit
 if (inboxRepository) app.use("/api/inbox", createInboxRouter({ store, repository: inboxRepository, events: inboxEvents, requireAuth, remoteDesktopConfig }));
 if (campaignRepository) app.use("/api/campaigns", createCampaignRouter({ store, repository: campaignRepository, requireAuth }));
 if (connectorRepository) app.use("/api/connectors", createConnectorRouter({ store, repository: connectorRepository, requireAuth }));
+if (connectorRepository) app.use("/api/providers", createProviderRouter({ store, repository: connectorRepository, campaignRepository, requireAuth }));
+if (genericApiRepository) app.use("/api/generic", createGenericApiRouter({ store, pool: store.repository.pool, repository: genericApiRepository, connectorRepository, requireAuth }));
 
 app.get("/api/users", requireAuth, requireAdmin, (req, res) => res.json({ users: store.listUsers() }));
 app.get("/api/admin/summary", requireAuth, requireAdmin, (req, res) => res.json(adminSummary(store, launcher)));

@@ -10,6 +10,8 @@ const { InboxRepository } = require('../src/inbox/repository');
 const { CampaignRepository } = require('../src/campaigns/repository');
 const { CredentialVault } = require('../src/connectors/vault');
 const { ConnectorRepository } = require('../src/connectors/repository');
+const { GenericApiRepository } = require('../src/generic-api/repository');
+const { normalizeCommerce, normalizeGhl } = require('../src/providers/normalize');
 
 const connectionString = process.env.TEST_DATABASE_URL;
 
@@ -111,7 +113,7 @@ test('PostgreSQL migration and legacy JSON round trip', { skip: !connectionStrin
 
     const vault = new CredentialVault({ key: crypto.randomBytes(32), keyId: 'integration-v1' });
     const connectors = new ConnectorRepository(pool, vault);
-    const installed = await connectors.install({ workspaceId: secondWorkspace.id, provider: 'generic', label: 'Reference CRM', credentials: { baseUrl: 'https://crm.test/hooks', token: 'secret-token', webhookSecret: 'secret-hook' }, scopes: ['contacts:read', 'contacts:write'], fieldMapping: { fullName: 'display_name', phone: 'phone_e164', email: 'email' }, conflictPolicy: 'latest_wins' });
+    const installed = await connectors.install({ workspaceId: secondWorkspace.id, provider: 'generic', label: 'Reference CRM', credentials: { baseUrl: 'https://crm.test/hooks', token: 'secret-token', webhookSecret: 'secret-hook' }, scopes: ['contacts:read', 'contacts:write', 'orders:read', 'conversations:read'], fieldMapping: { fullName: 'display_name', phone: 'phone_e164', email: 'email' }, conflictPolicy: 'latest_wins' });
     assert.equal(installed.hasCredentials, true); assert.equal(installed.token, undefined);
     assert.equal((await connectors.list([workspaceId])).length, 0);
     assert.equal(await connectors.get([workspaceId], installed.id), null);
@@ -138,6 +140,29 @@ test('PostgreSQL migration and legacy JSON round trip', { skip: !connectionStrin
     const replayed = await connectors.replay([secondWorkspace.id], installed.id);
     assert.equal(replayed.inboxReplayed, 1); assert.equal(replayed.outboxRequeued, 1);
     assert.equal((await pool.query("SELECT count(*)::int count FROM contacts WHERE workspace_id=$1 AND phone_e164='+923008888888'", [secondWorkspace.id])).rows[0].count, 1);
+    const orderEvent = normalizeCommerce('shopify', 'orders/create', { id: 'order-1', order_number: '1001', financial_status: 'paid', currency: 'USD', total_price: '49.50', phone: '+923007777777', updated_at: '2026-05-03T00:00:00Z' }, { deliveryId: `order-delivery-${suffix}` });
+    assert.equal((await connectors.receive(await connectors.internal(installed.id), orderEvent)).status, 'processed');
+    assert.equal((await pool.query("SELECT status FROM orders WHERE connector_connection_id=$1", [installed.id])).rows[0].status, 'paid');
+    const syncedOrder = (await pool.query("SELECT id,contact_id FROM orders WHERE connector_connection_id=$1", [installed.id])).rows[0];
+    await assert.rejects(() => campaigns.createApprovedTrigger({ workspaceId: secondWorkspace.id, numberId: secondNumber.id, contactId: syncedOrder.contact_id, name: 'Order follow-up', template: 'Thanks {{name}}', createdBy: second.id }), /Valid existing consent/);
+    await pool.query("INSERT INTO consent_records(id,workspace_id,contact_id,purpose,status,source,policy_version,captured_at,evidence) VALUES($1,$2,$3,'order-follow-up','granted','shopify-checkout','v1',$4,$5)", [crypto.randomUUID(), secondWorkspace.id, syncedOrder.contact_id, now, { reference: 'checkout-opt-in' }]);
+    const orderCampaign = await campaigns.createApprovedTrigger({ workspaceId: secondWorkspace.id, numberId: secondNumber.id, contactId: syncedOrder.contact_id, name: 'Order follow-up', template: 'Thanks {{name}}', createdBy: second.id });
+    assert.equal(orderCampaign.status, 'running');
+    const messageEvent = normalizeGhl({ type: 'InboundMessage', messageId: `ghl-message-${suffix}`, locationId: 'location-1', contactPhone: '+923007777777', message: 'CRM inbound', timestamp: '2026-05-04T00:00:00Z' });
+    assert.equal((await connectors.receive(await connectors.internal(installed.id), messageEvent)).status, 'processed');
+    assert.equal((await pool.query("SELECT count(*)::int count FROM messages WHERE workspace_id=$1 AND metadata->>'externalMessageId'=$2", [secondWorkspace.id, `ghl-message-${suffix}`])).rows[0].count, 1);
+    const genericApi = new GenericApiRepository(pool, { perMinute: 3 });
+    const apiKey = await genericApi.createKey(secondWorkspace.id, 'Integration', ['contacts:read']);
+    assert.equal((await genericApi.authenticate(apiKey.key)).workspace_id, secondWorkspace.id);
+    assert.equal(await genericApi.authenticate('wah_wrong'), null);
+    await genericApi.saveIdempotency(apiKey.id, 'idem-1', { value: 1 }, { id: 'response-1' });
+    assert.deepEqual(await genericApi.existingIdempotency(apiKey.id, 'idem-1', { value: 1 }), { id: 'response-1' });
+    await assert.rejects(() => genericApi.existingIdempotency(apiKey.id, 'idem-1', { value: 2 }), /different request/);
+    assert.equal(await genericApi.revoke([workspaceId], apiKey.id), false);
+    assert.equal(await genericApi.revoke([secondWorkspace.id], apiKey.id), true);
+    const limitedKey = await genericApi.createKey(secondWorkspace.id, 'Rate limit', ['contacts:read']);
+    await genericApi.authenticate(limitedKey.key); await genericApi.authenticate(limitedKey.key); await genericApi.authenticate(limitedKey.key);
+    await assert.rejects(() => genericApi.authenticate(limitedKey.key), (error) => error.status === 429);
     const rotated = await connectors.rotate([secondWorkspace.id], installed.id, { baseUrl: 'https://crm.test/hooks', token: 'rotated-token', webhookSecret: 'rotated-hook' });
     assert.equal(rotated.keyId, 'integration-v1'); assert.equal(rotated.token, undefined);
     const revoked = await connectors.revoke([secondWorkspace.id], installed.id);

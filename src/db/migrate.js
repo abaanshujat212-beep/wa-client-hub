@@ -9,7 +9,8 @@ const MIGRATIONS = [
   { id: '002_openwa_adapter', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '002_openwa_adapter.sql') },
   { id: '003_unified_inbox', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '003_unified_inbox.sql') },
   { id: '004_safe_campaigns', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '004_safe_campaigns.sql') },
-  { id: '005_connector_framework', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '005_connector_framework.sql') }
+  { id: '005_connector_framework', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '005_connector_framework.sql') },
+  { id: '006_provider_connectors', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '006_provider_connectors.sql') }
 ];
 
 function checksum(sql) {
