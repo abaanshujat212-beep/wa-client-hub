@@ -7,6 +7,7 @@ const PostgresStore = require('../src/db/postgresStore');
 const { DEFAULT_PLANS } = require('../src/store');
 const { OpenWaRepository } = require('../src/openwa/repository');
 const { InboxRepository } = require('../src/inbox/repository');
+const { CampaignRepository } = require('../src/campaigns/repository');
 
 const connectionString = process.env.TEST_DATABASE_URL;
 
@@ -89,6 +90,22 @@ test('PostgreSQL migration and legacy JSON round trip', { skip: !connectionStrin
     const tag = await inbox.addTag([secondWorkspace.id], inboxConversationId, 'VIP', '#25d366');
     assert.equal(tag.name, 'VIP');
     assert.equal(await inbox.removeTag([secondWorkspace.id], inboxConversationId, tag.id), true);
+
+    const campaigns = new CampaignRepository(pool);
+    await campaigns.suppress({ workspaceId: secondWorkspace.id, phone: '+923006666666', reason: 'existing opt-out' });
+    const campaign = await campaigns.create({ workspaceId: secondWorkspace.id, numberId: secondNumber.id, name: 'Consent campaign', template: 'Hi {{name}}', createdBy: second.id, contacts: [
+      { phone: '+923005555555', name: 'Eligible', consentSource: 'test-form', policyVersion: 'v1', consentCapturedAt: now, evidence: 'submission-1' },
+      { phone: '+923006666666', name: 'Blocked', consentSource: 'test-form', policyVersion: 'v1', consentCapturedAt: now, evidence: 'submission-2' }
+    ] });
+    assert.equal(campaign.accepted, 1); assert.equal(campaign.rejected, 1);
+    assert.equal((await campaigns.list([secondWorkspace.id]))[0].total, 2);
+    assert.equal((await campaigns.list([workspaceId])).length, 0);
+    await campaigns.setStatus([secondWorkspace.id], campaign.id, 'running');
+    const claimed = await campaigns.claim();
+    assert.equal(claimed.phone_e164, '+923005555555');
+    assert.deepEqual(await campaigns.eligibility(claimed), { consented: true, suppressed: false });
+    await campaigns.transition(claimed, 'sent', null, { externalMessageId: 'campaign-external' });
+    assert.equal((await campaigns.syncDelivery(secondWorkspace.id, 'campaign-external', 'delivered')).status, 'delivered');
   } finally {
     await pool.end();
   }

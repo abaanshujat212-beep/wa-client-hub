@@ -17,6 +17,10 @@ const { createOpenWaRouter } = require("./openwa/routes");
 const { InboxRepository } = require("./inbox/repository");
 const { InboxEvents } = require("./inbox/events");
 const { createInboxRouter } = require("./inbox/routes");
+const { CampaignRepository } = require("./campaigns/repository");
+const { CampaignWorker } = require("./campaigns/worker");
+const { createCampaignRouter } = require("./campaigns/routes");
+const { isOptOut, normalizePhone } = require("./campaigns/policy");
 const BrowserLauncher = require("./launcher");
 const { assertSecurityConfig } = require("./security");
 const { systemHealth } = require("./monitoring");
@@ -35,6 +39,8 @@ const openWaClient = new OpenWaClient();
 const openWaRepository = store.driver === "postgres" ? new OpenWaRepository(store.repository.pool) : null;
 const inboxRepository = store.driver === "postgres" ? new InboxRepository(store.repository.pool) : null;
 const inboxEvents = new InboxEvents();
+const campaignRepository = store.driver === "postgres" ? new CampaignRepository(store.repository.pool) : null;
+const campaignWorker = campaignRepository ? new CampaignWorker({ repository: campaignRepository, openWaRepository, openWaClient, redis: dependencies.redis, events: inboxEvents, workspaceLimit: Number(process.env.CAMPAIGN_WORKSPACE_PER_MINUTE || 20), numberLimit: Number(process.env.CAMPAIGN_NUMBER_PER_MINUTE || 10) }) : null;
 const FileStore = FileStoreFactory(session);
 const PgStore = PgStoreFactory(session);
 const port = Number(process.env.PORT || 3131);
@@ -45,7 +51,7 @@ const sessionStore = store.driver === "postgres"
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(express.json({ limit: "50kb", verify: (req, _res, buffer) => { if (req.originalUrl === "/api/billing/stripe/webhook") req.rawBody = Buffer.from(buffer); } }));
+app.use(express.json({ limit: "2mb", verify: (req, _res, buffer) => { if (req.originalUrl === "/api/billing/stripe/webhook") req.rawBody = Buffer.from(buffer); } }));
 app.use(session({ store: sessionStore, name: "wa_hub_session", secret: process.env.SESSION_SECRET || "development-only-secret-change-this-now", resave: false, saveUninitialized: false, cookie: { httpOnly: true, secure: process.env.COOKIE_SECURE === "true" ? true : "auto", sameSite: "lax", maxAge: 1000 * 60 * 60 * 12 } }));
 
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false });
@@ -68,8 +74,9 @@ app.post("/api/logout", requireAuth, (req, res) => { const userId = req.user.id;
 app.use("/api/billing/swich", ...billingAuth(createSwichRouter({ store })));
 app.use("/api/billing/whop", ...billingAuth(createWhopRouter({ store })));
 app.use("/api/billing/stripe", ...billingAuth(createStripeRouter({ store })));
-if (openWaRepository) app.use("/api/openwa", createOpenWaRouter({ store, repository: openWaRepository, client: openWaClient, events: inboxEvents, requireAuth, requireManage: canManage }));
+if (openWaRepository) app.use("/api/openwa", createOpenWaRouter({ store, repository: openWaRepository, client: openWaClient, events: inboxEvents, requireAuth, requireManage: canManage, onInbound: async ({ workspaceId, message }) => { if (!message.fromMe && isOptOut(message.body)) { const phone=normalizePhone(message.from); if(phone){await campaignRepository.suppress({workspaceId,phone,scope:"workspace",reason:"recipient_opt_out"});await store.addAudit("system","contact.opted_out",{workspaceId,phone});} } }, onCanonicalEvent: async ({workspaceId,event,result}) => { if(event==="ack.changed"&&result)await campaignRepository.syncDelivery(workspaceId,result.externalMessageId,result.status); } }));
 if (inboxRepository) app.use("/api/inbox", createInboxRouter({ store, repository: inboxRepository, events: inboxEvents, requireAuth, remoteDesktopConfig }));
+if (campaignRepository) app.use("/api/campaigns", createCampaignRouter({ store, repository: campaignRepository, requireAuth }));
 
 app.get("/api/users", requireAuth, requireAdmin, (req, res) => res.json({ users: store.listUsers() }));
 app.get("/api/admin/summary", requireAuth, requireAdmin, (req, res) => res.json(adminSummary(store, launcher)));
@@ -105,7 +112,7 @@ app.get("/api/ready", async (_req, res) => {
 });
 app.use(express.static(path.join(rootDir, "public"), { extensions: ["html"] }));
 app.get("/{*path}", (req, res) => res.sendFile(path.join(rootDir, "public", "index.html")));
-async function start() { const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com"; const adminPassword = process.env.ADMIN_PASSWORD || "ChangeMeNow123!"; assertSecurityConfig(process.env); await store.init({ adminEmail, adminPassword }); await dependencies.connect(); return app.listen(port, "0.0.0.0", () => console.log(`WA Client Hub running at http://localhost:${port} using ${store.driver} storage`)); }
-async function runMain() { const server = await start(); let closing = false; const shutdown = async () => { if (closing) return; closing = true; await new Promise((resolve) => server.close(resolve)); await dependencies.close(); if (typeof store.close === "function") await store.close(); process.exit(0); }; process.once("SIGINT", shutdown); process.once("SIGTERM", shutdown); }
+async function start() { const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com"; const adminPassword = process.env.ADMIN_PASSWORD || "ChangeMeNow123!"; assertSecurityConfig(process.env); await store.init({ adminEmail, adminPassword }); await dependencies.connect(); campaignWorker?.start(); return app.listen(port, "0.0.0.0", () => console.log(`WA Client Hub running at http://localhost:${port} using ${store.driver} storage`)); }
+async function runMain() { const server = await start(); let closing = false; const shutdown = async () => { if (closing) return; closing = true; campaignWorker?.stop(); await new Promise((resolve) => server.close(resolve)); await dependencies.close(); if (typeof store.close === "function") await store.close(); process.exit(0); }; process.once("SIGINT", shutdown); process.once("SIGTERM", shutdown); }
 if (require.main === module) runMain().catch((error) => { console.error(error); process.exit(1); });
 module.exports = { app, store, launcher, dependencies, start };

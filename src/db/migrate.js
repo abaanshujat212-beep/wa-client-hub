@@ -7,7 +7,8 @@ const { databaseConfig, assertDatabaseConfig } = require('./config');
 const MIGRATIONS = [
   { id: '001_canonical_schema', file: path.resolve(__dirname, '..', '..', 'docs', 'schema.sql') },
   { id: '002_openwa_adapter', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '002_openwa_adapter.sql') },
-  { id: '003_unified_inbox', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '003_unified_inbox.sql') }
+  { id: '003_unified_inbox', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '003_unified_inbox.sql') },
+  { id: '004_safe_campaigns', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '004_safe_campaigns.sql') }
 ];
 
 function checksum(sql) {

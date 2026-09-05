@@ -55,7 +55,7 @@ class OpenWaRepository {
     await this.pool.query("UPDATE provider_connections SET status=$1,updated_at=now() WHERE id=$2", [status, connectionId]);
   }
 
-  async recordOutbound({ connection, to, body, type, externalMessageId, idempotencyKey }) {
+  async recordOutbound({ connection, to, body, type, origin = "api", externalMessageId, idempotencyKey }) {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -68,13 +68,13 @@ class OpenWaRepository {
       const conversation = await client.query("SELECT id FROM conversations WHERE workspace_id=$1 AND whatsapp_number_id=$2 AND contact_id=$3", [connection.workspace_id, connection.number_id, contact.rows[0].id]);
       const id = crypto.randomUUID();
       await client.query(`INSERT INTO messages (id,workspace_id,conversation_id,provider_connection_id,external_message_id,client_idempotency_key,direction,origin,type,body,status,occurred_at)
-        VALUES ($1,$2,$3,$4,$5,$6,'outbound','api',$7,$8,'accepted',now()) ON CONFLICT DO NOTHING`, [id, connection.workspace_id, conversation.rows[0].id, connection.id, externalMessageId || null, idempotencyKey || null, type, body || null]);
+        VALUES ($1,$2,$3,$4,$5,$6,'outbound',$7,$8,$9,'accepted',now()) ON CONFLICT DO NOTHING`, [id, connection.workspace_id, conversation.rows[0].id, connection.id, externalMessageId || null, idempotencyKey || null, origin, type, body || null]);
       await client.query("COMMIT");
       return { id, externalMessageId, status: "accepted" };
     } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
   }
 
-  async ingest(envelope, signatureValid = true) {
+  async ingest(envelope, signatureValid = true, onInbound = null, onCanonicalEvent = null) {
     const connection = await this.connectionForSession(envelope.sessionId);
     if (!connection) throw new Error("Unknown OpenWA session");
     const externalEventId = String(envelope.webhookId || envelope.payload?.message?.id || envelope.payload?.id || "");
@@ -89,12 +89,14 @@ class OpenWaRepository {
       await this.pool.query("UPDATE webhook_receipts SET status='processing',attempt_count=attempt_count+1,error=NULL WHERE id=$1", [receiptId]);
     }
     try {
-      if (["message.received", "message.any"].includes(envelope.event) && envelope.payload?.message) await this.ingestMessage(connection, envelope.payload.message);
-      if (envelope.event === "ack.changed") await this.ingestAck(connection, envelope.payload?.ack || envelope.payload);
+      if (["message.received", "message.any"].includes(envelope.event) && envelope.payload?.message) { await this.ingestMessage(connection, envelope.payload.message); if(onInbound)await onInbound({workspaceId:connection.workspace_id,message:envelope.payload.message}); }
+      let canonicalEvent = null;
+      if (envelope.event === "ack.changed") canonicalEvent = await this.ingestAck(connection, envelope.payload?.ack || envelope.payload);
       if (envelope.event === "session.state.changed") {
         const next = String(envelope.payload?.details?.next || "").toLowerCase();
         await this.setStatus(connection.id, ["connected", "authenticated", "ready"].includes(next) ? "active" : "offline");
       }
+      if (onCanonicalEvent) await onCanonicalEvent({ workspaceId: connection.workspace_id, event: envelope.event, result: canonicalEvent, envelope });
       await this.pool.query("UPDATE webhook_receipts SET status='processed',processed_at=now() WHERE id=$1", [receiptId]);
       return { duplicate: false, receiptId, workspaceId: connection.workspace_id };
     } catch (error) {
@@ -136,6 +138,7 @@ class OpenWaRepository {
     const status = messageStatus(ack);
     const updated = await this.pool.query("UPDATE messages SET status=$1 WHERE provider_connection_id=$2 AND external_message_id=$3 RETURNING id,workspace_id", [status, connection.id, externalMessageId]);
     if (updated.rowCount) await this.pool.query("INSERT INTO message_status_events (id,workspace_id,message_id,status,external_event_id,occurred_at,details) VALUES ($1,$2,$3,$4,$5,now(),$6)", [crypto.randomUUID(), updated.rows[0].workspace_id, updated.rows[0].id, status, ack.eventId || null, ack]);
+    return { externalMessageId, status, messageId: updated.rows[0]?.id || null };
   }
 }
 

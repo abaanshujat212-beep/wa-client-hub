@@ -18,13 +18,13 @@ function normalizeEnvelope(body = {}) {
   return { webhookId: body.webhookId, sessionId: body.sessionId, event, payload, timestamp: body.timestamp || body.ts };
 }
 
-function createOpenWaRouter({ store, repository, client, events, webhookSecret = process.env.OPENWA_WEBHOOK_SECRET || "", requireAuth, requireManage }) {
+function createOpenWaRouter({ store, repository, client, events, onInbound, onCanonicalEvent, webhookSecret = process.env.OPENWA_WEBHOOK_SECRET || "", requireAuth, requireManage }) {
   const router = express.Router();
   router.post("/webhook", async (req, res) => {
     if (!safeSecretEqual(req.get("x-webhook-secret"), webhookSecret)) return res.status(401).json({ error: "Invalid OpenWA webhook secret" });
     const envelope = normalizeEnvelope(req.body);
     if (!envelope.sessionId || !envelope.event || !envelope.payload) return res.status(400).json({ error: "Invalid OpenWA webhook envelope" });
-    try { const result = await repository.ingest(envelope, true); if (!result.duplicate && events) events.publish(result.workspaceId, "message.changed", { event: envelope.event }); res.status(result.duplicate ? 200 : 202).json({ ok: true, duplicate: result.duplicate }); }
+    try { const result = await repository.ingest(envelope, true, onInbound, onCanonicalEvent); if (!result.duplicate && events) events.publish(result.workspaceId, "message.changed", { event: envelope.event }); res.status(result.duplicate ? 200 : 202).json({ ok: true, duplicate: result.duplicate }); }
     catch (error) { res.status(error.message === "Unknown OpenWA session" ? 404 : 422).json({ error: error.message }); }
   });
 
