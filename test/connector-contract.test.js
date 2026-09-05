@@ -1,0 +1,3 @@
+const test=require("node:test");const assert=require("node:assert/strict");const {validateEvent,mapFields}=require("../src/connectors/contract");
+test("connector contract validates canonical events",()=>{const event=validateEvent({externalEventId:"e1",type:"contact.updated",subjectType:"contact",subjectId:"remote-1",occurredAt:"2026-01-01T00:00:00Z",data:{phone:"+1"}});assert.equal(event.occurredAt,"2026-01-01T00:00:00.000Z");assert.throws(()=>validateEvent({...event,type:"unknown"}),/Unsupported/);});
+test("field mapping copies only declared fields",()=>{assert.deepEqual(mapFields({full_name:"Ada",token:"secret"},{full_name:"display_name"}),{display_name:"Ada"});});

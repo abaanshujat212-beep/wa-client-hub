@@ -8,6 +8,8 @@ const { DEFAULT_PLANS } = require('../src/store');
 const { OpenWaRepository } = require('../src/openwa/repository');
 const { InboxRepository } = require('../src/inbox/repository');
 const { CampaignRepository } = require('../src/campaigns/repository');
+const { CredentialVault } = require('../src/connectors/vault');
+const { ConnectorRepository } = require('../src/connectors/repository');
 
 const connectionString = process.env.TEST_DATABASE_URL;
 
@@ -106,6 +108,41 @@ test('PostgreSQL migration and legacy JSON round trip', { skip: !connectionStrin
     assert.deepEqual(await campaigns.eligibility(claimed), { consented: true, suppressed: false });
     await campaigns.transition(claimed, 'sent', null, { externalMessageId: 'campaign-external' });
     assert.equal((await campaigns.syncDelivery(secondWorkspace.id, 'campaign-external', 'delivered')).status, 'delivered');
+
+    const vault = new CredentialVault({ key: crypto.randomBytes(32), keyId: 'integration-v1' });
+    const connectors = new ConnectorRepository(pool, vault);
+    const installed = await connectors.install({ workspaceId: secondWorkspace.id, provider: 'generic', label: 'Reference CRM', credentials: { baseUrl: 'https://crm.test/hooks', token: 'secret-token', webhookSecret: 'secret-hook' }, scopes: ['contacts:read', 'contacts:write'], fieldMapping: { fullName: 'display_name', phone: 'phone_e164', email: 'email' }, conflictPolicy: 'latest_wins' });
+    assert.equal(installed.hasCredentials, true); assert.equal(installed.token, undefined);
+    assert.equal((await connectors.list([workspaceId])).length, 0);
+    assert.equal(await connectors.get([workspaceId], installed.id), null);
+    const storedSecret = await pool.query('SELECT encrypted_credentials FROM connector_connections WHERE id=$1', [installed.id]);
+    assert.equal(storedSecret.rows[0].encrypted_credentials.includes(Buffer.from('secret-token')), false);
+    const connectorRow = await connectors.internal(installed.id);
+    const newerEvent = { externalEventId: `crm-new-${suffix}`, type: 'contact.updated', subjectType: 'contact', subjectId: 'crm-contact-1', occurredAt: '2026-05-02T00:00:00Z', data: { fullName: 'CRM Person', phone: '+923007777777', email: 'crm@test.local' } };
+    assert.equal((await connectors.receive(connectorRow, newerEvent)).status, 'processed');
+    assert.equal((await connectors.receive(connectorRow, newerEvent)).duplicate, true);
+    const refreshed = await connectors.internal(installed.id);
+    const olderEvent = { ...newerEvent, externalEventId: `crm-old-${suffix}`, occurredAt: '2026-05-01T00:00:00Z', data: { ...newerEvent.data, fullName: 'Stale Name' } };
+    assert.equal((await connectors.receive(refreshed, olderEvent)).status, 'ignored');
+    assert.equal((await pool.query("SELECT display_name FROM contacts WHERE workspace_id=$1 AND phone_e164='+923007777777'", [secondWorkspace.id])).rows[0].display_name, 'CRM Person');
+    await connectors.updateSettings([secondWorkspace.id], installed.id, { scopes: installed.scopes, fieldMapping: installed.fieldMapping, conflictPolicy: 'manual_review' });
+    const manual = await connectors.internal(installed.id);
+    assert.equal((await connectors.receive(manual, { ...olderEvent, externalEventId: `crm-conflict-${suffix}` })).reason, 'manual_review');
+    assert.equal((await connectors.diagnostics([secondWorkspace.id], installed.id)).openConflicts, 1);
+    const outgoing = { ...newerEvent, externalEventId: `out-${suffix}` };
+    assert.ok(await connectors.enqueue({ workspaceId: secondWorkspace.id, connectionId: installed.id, event: outgoing }));
+    assert.equal(await connectors.enqueue({ workspaceId: secondWorkspace.id, connectionId: installed.id, event: outgoing }), null);
+    await pool.query("UPDATE outbox_events SET status='failed' WHERE connector_connection_id=$1", [installed.id]);
+    const replayEvent = { ...newerEvent, externalEventId: `replay-${suffix}`, subjectId: 'crm-contact-2', data: { ...newerEvent.data, phone: '+923008888888' } };
+    await pool.query("INSERT INTO connector_inbox_events(id,workspace_id,connector_connection_id,external_event_id,event_type,external_occurred_at,payload,status,attempt_count) VALUES($1,$2,$3,$4,$5,$6,$7,'failed',1)", [`inbox-replay-${suffix}`, secondWorkspace.id, installed.id, replayEvent.externalEventId, replayEvent.type, replayEvent.occurredAt, replayEvent]);
+    const replayed = await connectors.replay([secondWorkspace.id], installed.id);
+    assert.equal(replayed.inboxReplayed, 1); assert.equal(replayed.outboxRequeued, 1);
+    assert.equal((await pool.query("SELECT count(*)::int count FROM contacts WHERE workspace_id=$1 AND phone_e164='+923008888888'", [secondWorkspace.id])).rows[0].count, 1);
+    const rotated = await connectors.rotate([secondWorkspace.id], installed.id, { baseUrl: 'https://crm.test/hooks', token: 'rotated-token', webhookSecret: 'rotated-hook' });
+    assert.equal(rotated.keyId, 'integration-v1'); assert.equal(rotated.token, undefined);
+    const revoked = await connectors.revoke([secondWorkspace.id], installed.id);
+    assert.equal(revoked.status, 'revoked'); assert.equal(revoked.hasCredentials, false);
+    assert.equal((await pool.query('SELECT status FROM outbox_events WHERE connector_connection_id=$1', [installed.id])).rows[0].status, 'dead_letter');
   } finally {
     await pool.end();
   }
