@@ -21,6 +21,7 @@ test("store keeps client accounts separated", async () => {
   const oneWorkspace = store.createWorkspace({ ownerId: one.id, name: "Client One", planId: "team" });
   const twoWorkspace = store.createWorkspace({ ownerId: two.id, name: "Client Two", planId: "team" });
   store.createAccount({ ownerId: one.id, workspaceId: oneWorkspace.id, label: "Sales", phone: "+923001111111" });
+  assert.throws(() => store.createAccount({ ownerId: one.id, workspaceId: oneWorkspace.id, label: "Duplicate", phone: "+92 300 1111111" }), /already added/);
   store.createAccount({ ownerId: two.id, workspaceId: twoWorkspace.id, label: "Support", phone: "+923002222222" });
   assert.equal(store.listAccounts(store.findUser(one.id)).length, 1);
   assert.equal(store.listAccounts(store.findUser(two.id))[0].label, "Support");
