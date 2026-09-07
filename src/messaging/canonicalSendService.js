@@ -53,12 +53,6 @@ class CanonicalSendService {
       });
     }
 
-    const existing = await this.repository.outboundByIdempotencyKey(
-      dispatch.workspaceId,
-      key
-    );
-    if (existing) return { message: existing, duplicate: true };
-
     if (!dispatch.automationEnabled) {
       throw new SendError("Automation is not enabled for this WhatsApp number", {
         code: "AUTOMATION_DISABLED",
@@ -74,6 +68,28 @@ class CanonicalSendService {
       });
     }
 
+    const reservation = await this.repository.reserveOutbound({
+      dispatch,
+      idempotencyKey: key
+    });
+    if (!reservation.created) {
+      return {
+        message: reservation.attempt.message_id
+          ? {
+              id: reservation.attempt.message_id,
+              externalMessageId: reservation.attempt.external_message_id,
+              status: reservation.attempt.message_status || reservation.attempt.status
+            }
+          : {
+              id: null,
+              attemptId: reservation.attempt.id,
+              status: reservation.attempt.status
+            },
+        duplicate: true
+      };
+    }
+
+    const attemptId = reservation.attempt.id;
     let providerResult;
     try {
       providerResult = await adapter.sendText({
@@ -83,6 +99,11 @@ class CanonicalSendService {
         idempotencyKey: key
       });
     } catch (error) {
+      await this.repository.failOutbound({
+        attemptId,
+        workspaceId: dispatch.workspaceId,
+        error
+      });
       throw new SendError("Provider rejected the message", {
         code: error.code || "PROVIDER_SEND_FAILED",
         status: 502
@@ -90,6 +111,7 @@ class CanonicalSendService {
     }
 
     const message = await this.repository.recordOutbound({
+      attemptId,
       dispatch,
       body,
       type: "text",
