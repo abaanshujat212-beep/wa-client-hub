@@ -1,9 +1,6 @@
 const express = require("express");
 const { createCanonicalSendHandler } = require("../messaging/http");
-const { CanonicalSendService } = require("../messaging/canonicalSendService");
-const { MessagingRepository } = require("../messaging/repository");
-const { OpenWaMessagingAdapter } = require("../messaging/openWaAdapter");
-const { OpenWaClient } = require("../openwa/client");
+const { createMessagingRuntime } = require("../messaging/runtime");
 
 function createInboxRouter({ store, repository, events, requireAuth, remoteDesktopConfig, sendService = null }) {
   const router = express.Router();
@@ -12,11 +9,10 @@ function createInboxRouter({ store, repository, events, requireAuth, remoteDeskt
   let canonicalHandler = null;
   function sendHandler() {
     if (canonicalHandler) return canonicalHandler;
-    const service = sendService || new CanonicalSendService({ repository: new MessagingRepository(repository.pool), adapters: { openwa: new OpenWaMessagingAdapter(new OpenWaClient()) }, events, audit: (actorId, action, metadata) => store.addAudit(actorId, action, metadata) });
+    const service = sendService || createMessagingRuntime({ pool: repository.pool, events, audit: (actorId, action, metadata) => store.addAudit(actorId, action, metadata) });
     canonicalHandler = createCanonicalSendHandler({ sendService: service, workspaceIds });
     return canonicalHandler;
   }
-
   router.use(requireAuth);
   router.get("/conversations", async (req,res) => { try { res.json(await repository.listConversations({ ...req.query, workspaceIds: workspaceIds(req) })); } catch(error) { fail(res,error); } });
   router.get("/conversations/:id/messages", async (req,res) => { try { const result=await repository.listMessages(workspaceIds(req),req.params.id,req.query); if(!result)return res.status(404).json({error:"Conversation not found"}); res.json(result); } catch(error){ fail(res,error); } });
