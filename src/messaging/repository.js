@@ -20,10 +20,12 @@ class MessagingRepository {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN"); const id = crypto.randomUUID();
-      const inserted = await client.query(`INSERT INTO messages (id,workspace_id,conversation_id,provider_connection_id,external_message_id,client_idempotency_key,direction,origin,type,body,status,occurred_at,metadata) VALUES ($1,$2,$3,$4,$5,$6,'outbound',$7,$8,$9,'accepted',now(),$10) RETURNING *`, [id, dispatch.workspaceId, dispatch.conversationId, dispatch.providerConnectionId, externalMessageId, idempotencyKey, origin, type, body, { rawProviderStatus }]);
+      const inserted = await client.query(`INSERT INTO messages (id,workspace_id,conversation_id,provider_connection_id,external_message_id,client_idempotency_key,direction,origin,type,body,status,occurred_at,metadata) VALUES ($1,$2,$3,$4,$5,$6,'outbound',$7,$8,$9,'accepted',now(),$10) ON CONFLICT (workspace_id,client_idempotency_key) WHERE client_idempotency_key IS NOT NULL DO NOTHING RETURNING *`, [id, dispatch.workspaceId, dispatch.conversationId, dispatch.providerConnectionId, externalMessageId, idempotencyKey, origin, type, body, { rawProviderStatus }]);
+      const message = inserted.rows[0] || (await client.query("SELECT * FROM messages WHERE workspace_id=$1 AND client_idempotency_key=$2", [dispatch.workspaceId, idempotencyKey])).rows[0];
+      if (!message) throw new Error("Canonical outbound message could not be resolved");
       await client.query("UPDATE conversations SET last_message_at=now(),updated_at=now() WHERE id=$1 AND workspace_id=$2", [dispatch.conversationId, dispatch.workspaceId]);
-      await client.query(`UPDATE message_send_attempts SET status='accepted',message_id=$1,external_message_id=$2,raw_provider_status=$3,updated_at=now() WHERE id=$4 AND workspace_id=$5`, [inserted.rows[0].id, externalMessageId, rawProviderStatus, attemptId, dispatch.workspaceId]);
-      await client.query("COMMIT"); return inserted.rows[0];
+      await client.query(`UPDATE message_send_attempts SET status='accepted',message_id=$1,external_message_id=COALESCE(external_message_id,$2),raw_provider_status=COALESCE(raw_provider_status,$3),updated_at=now() WHERE id=$4 AND workspace_id=$5`, [message.id, externalMessageId, rawProviderStatus, attemptId, dispatch.workspaceId]);
+      await client.query("COMMIT"); return message;
     } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
   }
   async failOutbound({ attemptId, workspaceId, error }) { await this.pool.query(`UPDATE message_send_attempts SET status='failed',last_error=$1,updated_at=now() WHERE id=$2 AND workspace_id=$3`, [String(error?.message || error || "Provider send failed").slice(0, 2000), attemptId, workspaceId]); }
