@@ -1,13 +1,26 @@
 const express = require("express");
+const { createCanonicalSendHandler } = require("../messaging/http");
+const { CanonicalSendService } = require("../messaging/canonicalSendService");
+const { MessagingRepository } = require("../messaging/repository");
+const { OpenWaMessagingAdapter } = require("../messaging/openWaAdapter");
+const { OpenWaClient } = require("../openwa/client");
 
-function createInboxRouter({ store, repository, events, requireAuth, remoteDesktopConfig }) {
+function createInboxRouter({ store, repository, events, requireAuth, remoteDesktopConfig, sendService = null }) {
   const router = express.Router();
-  router.use(requireAuth);
   const workspaceIds = (req) => store.listWorkspaces(req.user).map((workspace) => workspace.id);
   const fail = (res, error) => res.status(error.message === "Invalid pagination cursor" ? 400 : 500).json({ error: error.message });
+  let canonicalHandler = null;
+  function sendHandler() {
+    if (canonicalHandler) return canonicalHandler;
+    const service = sendService || new CanonicalSendService({ repository: new MessagingRepository(repository.pool), adapters: { openwa: new OpenWaMessagingAdapter(new OpenWaClient()) }, events, audit: (actorId, action, metadata) => store.addAudit(actorId, action, metadata) });
+    canonicalHandler = createCanonicalSendHandler({ sendService: service, workspaceIds });
+    return canonicalHandler;
+  }
 
+  router.use(requireAuth);
   router.get("/conversations", async (req,res) => { try { res.json(await repository.listConversations({ ...req.query, workspaceIds: workspaceIds(req) })); } catch(error) { fail(res,error); } });
   router.get("/conversations/:id/messages", async (req,res) => { try { const result=await repository.listMessages(workspaceIds(req),req.params.id,req.query); if(!result)return res.status(404).json({error:"Conversation not found"}); res.json(result); } catch(error){ fail(res,error); } });
+  router.post("/conversations/:id/messages", (req,res) => sendHandler()(req,res));
   router.post("/conversations/:id/read", async (req,res) => { try { const c=await repository.markRead(workspaceIds(req),req.params.id); if(!c)return res.status(404).json({error:"Conversation not found"}); events.publish(c.workspace_id,"conversation.read",{conversationId:c.id}); res.json({conversation:c}); } catch(error){ fail(res,error); } });
   router.patch("/conversations/:id/assignment", async (req,res) => { try { const existing=await repository.conversation(workspaceIds(req),req.params.id); if(!existing)return res.status(404).json({error:"Conversation not found"}); const userId=String(req.body.userId||"")||null; if(userId && !(await repository.member(existing.workspace_id,userId)))return res.status(400).json({error:"Assignee is not a workspace member"}); const c=await repository.assign(workspaceIds(req),req.params.id,userId); await store.addAudit(req.user.id,"inbox.conversation.assigned",{workspaceId:c.workspace_id,conversationId:c.id,userId}); events.publish(c.workspace_id,"conversation.assigned",{conversationId:c.id,userId}); res.json({conversation:c}); } catch(error){ fail(res,error); } });
   router.get("/conversations/:id/notes", async (req,res) => { try { const notes=await repository.notes(workspaceIds(req),req.params.id); if(!notes)return res.status(404).json({error:"Conversation not found"}); res.json({notes}); } catch(error){ fail(res,error); } });
@@ -18,5 +31,4 @@ function createInboxRouter({ store, repository, events, requireAuth, remoteDeskt
   router.get("/events", (req,res) => { const ids=workspaceIds(req); res.set({"Content-Type":"text/event-stream","Cache-Control":"no-cache, no-transform","Connection":"keep-alive"}); res.flushHeaders(); const send=(event)=>res.write(`event: inbox\ndata: ${JSON.stringify(event)}\n\n`); res.write(": connected\n\n"); const unsubscribe=events.subscribe(ids,send); const heartbeat=setInterval(()=>res.write(": heartbeat\n\n"),25000); req.on("close",()=>{clearInterval(heartbeat);unsubscribe();}); });
   return router;
 }
-
 module.exports = { createInboxRouter };
