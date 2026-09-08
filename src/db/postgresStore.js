@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const { AsyncLocalStorage } = require('node:async_hooks');
 const Store = require('../store');
 const PostgresRepository = require('./postgresRepository');
+const { applyLegacyDelta } = require('./legacyDelta');
 
 class PostgresStore extends Store {
   constructor(rootDir, options = {}) {
@@ -22,6 +23,7 @@ class PostgresStore extends Store {
   async init({ adminEmail, adminPassword }) {
     await this.repository.init();
     this.data = await this.repository.loadLegacyState();
+    const before = structuredClone(this.data);
     this._initializing = true;
     try { await super.migrate(); } finally { this._initializing = false; }
 
@@ -33,7 +35,8 @@ class PostgresStore extends Store {
     if (!this.data.users.some((user) => user.role === 'admin')) {
       this.data.users.push({ id: crypto.randomUUID(), name: 'Administrator', email: adminEmail.toLowerCase(), passwordHash: await bcrypt.hash(adminPassword, 12), role: 'admin', active: true, createdAt: new Date().toISOString() });
     }
-    await this.repository.replaceLegacyState(this.data, { requireEmpty: false });
+    // Initialization must not reconcile away records inserted during startup.
+    await applyLegacyDelta(this.repository.pool, before, this.data);
   }
 
   async close() { await this.repository.close(); }
@@ -41,10 +44,13 @@ class PostgresStore extends Store {
   async _mutate(method, args) {
     if (this.mutationContext.getStore()) return Store.prototype[method].apply(this, args);
     const operation = this.mutationTail.then(() => this.mutationContext.run(true, async () => {
+      // Refresh for resource counts and records installed by other writers.
+      // Authorization in synchronous route helpers still needs its own fresh-DB gate.
+      this.data = await this.repository.loadLegacyState();
       const before = structuredClone(this.data);
       try {
         const result = await Store.prototype[method].apply(this, args);
-        await this.repository.replaceLegacyState(this.data, { requireEmpty: false });
+        await applyLegacyDelta(this.repository.pool, before, this.data);
         return result;
       } catch (error) {
         this.data = before;

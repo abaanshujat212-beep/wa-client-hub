@@ -12,7 +12,9 @@ const MIGRATIONS = [
   { id: '005_connector_framework', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '005_connector_framework.sql') },
   { id: '006_provider_connectors', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '006_provider_connectors.sql') },
   { id: '007_canonical_send', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '007_canonical_send.sql') },
-  { id: '008_meta_connections', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '008_meta_connections.sql') }
+  { id: '008_meta_connections', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '008_meta_connections.sql') },
+  { id: '009_meta_signup_states', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '009_meta_signup_states.sql') },
+  { id: '010_meta_signup_rate_limits', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '010_meta_signup_rate_limits.sql') }
 ];
 
 function checksum(sql) {
