@@ -4,7 +4,13 @@ const { applyLegacyDelta } = require('../src/db/legacyDelta');
 const empty = () => ({ users: [], plans: [], workspaces: [], workspaceMembers: [], accounts: [], invites: [], audit: [] });
 function fixture(rowCount = 1) {
   const calls = []; let released = false;
-  const client = { async query(sql, values) { calls.push({ sql, values }); return { rowCount }; }, release() { released = true; } };
+  const client = { async query(sql, values) {
+    calls.push({ sql, values });
+    if (sql.includes('FROM workspaces w')) return { rowCount: 1, rows: [{ status: 'active', billing_status: 'manual', number_limit: 3 }] };
+    if (sql.startsWith('SELECT count')) return { rowCount: 1, rows: [{ total: 0 }] };
+    if (sql.includes('regexp_replace')) return { rowCount: 0, rows: [] };
+    return { rowCount };
+  }, release() { released = true; } };
   return { pool: { async connect() { return client; } }, calls, released: () => released };
 }
 const number = { id: 'number-a', workspaceId: 'workspace-a', ownerId: 'owner-a', label: 'WA', phone: '+923001112222', createdAt: '2026-09-01T00:00:00.000Z', lastLaunchedAt: null };

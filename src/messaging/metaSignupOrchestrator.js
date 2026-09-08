@@ -1,6 +1,11 @@
 const crypto = require("node:crypto");
 const { validState } = require("./metaSignupStateRepository");
 const PUBLIC_ERRORS = new Map([
+  ["WORKSPACE_INACTIVE", [409, "Workspace is not active"]],
+  ["BILLING_RESOURCE_BLOCKED", [409, "Billing status blocks adding WhatsApp numbers"]],
+  ["NUMBER_LIMIT_INVALID", [409, "Workspace number limit is not configured"]],
+  ["NUMBER_LIMIT_REACHED", [409, "Workspace WhatsApp number limit reached"]],
+  ["NUMBER_ALREADY_EXISTS", [409, "This WhatsApp number is already added to this workspace"]],
   ["META_SIGNUP_INVALID", [400, "Valid Meta signup details are required"]],
   ["META_INSTALL_INVALID", [400, "Valid Meta connection details are required"]],
   ["META_SIGNUP_NOT_CONFIGURED", [503, "Meta Embedded Signup is not configured"]],
@@ -23,9 +28,9 @@ function authenticated(req) {
 function invalidState(res) {
   return res.status(409).json({ error: "Meta signup session is invalid or expired", code: "META_SIGNUP_STATE_INVALID" });
 }
-function createMetaSignupHandlers({ store, signupService, connectionRepository, stateRepository, ttlMs = 600000 }) {
-  if (!store || !signupService || !connectionRepository || !stateRepository) {
-    throw new TypeError("Meta signup dependencies, including durable state storage, are required");
+function createMetaSignupHandlers({ authorization, signupService, connectionRepository, stateRepository, ttlMs = 600000 }) {
+  if (typeof authorization?.canManageWorkspace !== 'function' || !signupService || !connectionRepository || !stateRepository) {
+    throw new TypeError("Meta signup dependencies, including database authorization and durable state storage, are required");
   }
   async function start(req, res) {
     if (!authenticated(req)) return res.status(401).json({ error: "Please sign in" });
@@ -35,7 +40,7 @@ function createMetaSignupHandlers({ store, signupService, connectionRepository, 
       return res.status(400).json({ error: "Valid workspace and number label are required" });
     }
     try {
-      if (!await store.canManageWorkspace(req.user, workspaceId)) return res.status(404).json({ error: "Workspace not found" });
+      if (!await authorization.canManageWorkspace(req.user, workspaceId)) return res.status(404).json({ error: "Workspace not found" });
       const state = crypto.randomBytes(32).toString("base64url");
       const { expiresAt } = await stateRepository.create({ state, sessionId: req.sessionID, actorId: req.user.id, workspaceId, label, ttlMs });
       return res.status(201).json({ state, expiresAt });
@@ -49,7 +54,7 @@ function createMetaSignupHandlers({ store, signupService, connectionRepository, 
       // Session objects are not the replay authority: claim commits before external I/O.
       const pending = await stateRepository.consume({ state: body.state, sessionId: req.sessionID, actorId: req.user.id });
       if (!pending) return invalidState(res);
-      if (!await store.canManageWorkspace(req.user, pending.workspaceId)) return res.status(404).json({ error: "Workspace not found" });
+      if (!await authorization.canManageWorkspace(req.user, pending.workspaceId)) return res.status(404).json({ error: "Workspace not found" });
       const verified = await signupService.exchangeAndVerify({ code: body.code, businessAccountId: body.businessAccountId, phoneNumberId: body.phoneNumberId });
       if (!verified.displayPhoneNumber) return res.status(422).json({ error: "Meta did not return a display phone number", code: "META_DISPLAY_PHONE_MISSING" });
       const installed = await connectionRepository.install({

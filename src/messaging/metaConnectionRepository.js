@@ -1,4 +1,5 @@
 const crypto = require("node:crypto");
+const { assertNumberCreation } = require('../db/numberCreationPolicy');
 class MetaConnectionError extends Error {
   constructor(message, code) { super(message); this.name = "MetaConnectionError"; this.code = code; }
 }
@@ -25,8 +26,10 @@ class MetaConnectionRepository {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      const workspace = await client.query("SELECT owner_id FROM workspaces WHERE id=$1 FOR SHARE", [input.workspaceId]);
-      if (!workspace.rowCount) throw new MetaConnectionError("Workspace not found", "WORKSPACE_NOT_FOUND");
+      await client.query('SELECT pg_advisory_xact_lock($1)', [90421032]);
+      const workspace = await assertNumberCreation(client, input.workspaceId, {
+        actorId: input.actorId, requireManager: true, phone: value.phone,
+      });
       const encrypted = this.vault.encrypt({ accessToken: value.accessToken, phoneNumberId: value.phoneNumberId, businessAccountId: value.businessAccountId }, connectionId);
       await client.query(
         `INSERT INTO provider_connections(id,workspace_id,provider,label,encrypted_credentials,encryption_key_id,status,settings) VALUES($1,$2,'whatsapp_cloud',$3,$4,$5,'connecting',$6)`,
@@ -34,7 +37,7 @@ class MetaConnectionRepository {
       );
       await client.query(
         `INSERT INTO whatsapp_numbers(id,owner_id,workspace_id,label,phone,provider_connection_id,external_session_id,automation_enabled) VALUES($1,$2,$3,$4,$5,$6,$7,false)`,
-        [numberId, workspace.rows[0].owner_id, input.workspaceId, value.label, value.phone, connectionId, value.phoneNumberId],
+        [numberId, workspace.owner_id, input.workspaceId, value.label, value.phone, connectionId, value.phoneNumberId],
       );
       // Signup supplies the actor. Avoid snapshot-based store.addAudit after direct SQL.
       if (input.actorId) await client.query(

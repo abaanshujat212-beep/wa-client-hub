@@ -1,4 +1,5 @@
 const { isDeepStrictEqual } = require('node:util');
+const { assertNumberCreation } = require('./numberCreationPolicy');
 
 // Only legacy-owned columns may be written. Provider mappings and canonical data
 // are deliberately absent: a legacy number edit cannot reset those columns.
@@ -51,6 +52,7 @@ async function applyLegacyDelta(pool, before, after) {
       for (const [id, row] of next) {
         const current = rowValues(row, spec);
         if (!old.has(id)) {
+          if (spec.key === 'accounts') await assertNumberCreation(client, row.workspaceId, { phone: row.phone });
           const columns = Object.keys(current);
           await client.query(`INSERT INTO ${spec.table} (${columns.join(',')}) VALUES (${columns.map((_, i) => `$${i + 1}`).join(',')})`, Object.values(current));
           continue;
