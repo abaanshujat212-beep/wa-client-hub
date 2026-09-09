@@ -2,9 +2,9 @@ const { validCsrf, validateOrigin } = require('./metaSignupRoutes');
 const { MetaSignupProtection } = require('./metaSignupProtection');
 
 function validScope(body) {
-  return body && typeof body === 'object' && !Array.isArray(body) &&
+  return Boolean(body && typeof body === 'object' && !Array.isArray(body) &&
     Object.keys(body).length === 1 && typeof body.workspaceId === 'string' &&
-    body.workspaceId.length > 0 && body.workspaceId.length <= 256;
+    body.workspaceId.length > 0 && body.workspaceId.length <= 256);
 }
 function lifecycleError(error) {
   const code = String(error?.code || '');
