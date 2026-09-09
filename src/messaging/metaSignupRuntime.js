@@ -24,30 +24,29 @@ function validateMetaSignupConfig(env = process.env, store) {
 }
 function createMetaSignupRuntime({ env = process.env, store, logger = console } = {}) {
   const config = validateMetaSignupConfig(env, store);
-  if (!config.enabled) return {
-    enabled: false,
-    router: (_req, res) => res.status(404).json({ error: 'Not found' }),
-    start() {}, stop() {}, status: () => ({ enabled: false, cleanup: 'disabled' }),
-  };
+  const hidden = (_req, res) => res.status(404).json({ error: 'Not found' });
+  if (!config.enabled) return { enabled: false, router: hidden, connectionsRouter: hidden, start() {}, stop() {}, status: () => ({ enabled: false, cleanup: 'disabled' }) };
   const { MetaEmbeddedSignupService } = require('./metaEmbeddedSignupService');
   const { createMetaSignupRouter } = require('./metaSignupRoutes');
-  const { CredentialVault } = require('../connectors/vault');
+  const { createMetaConnectionRouter } = require('./metaConnectionRoutes');
+  const { MetaConnectionLifecycleRepository } = require('./metaConnectionLifecycleRepository');
+  const { MetaConnectionDiagnosticsService } = require('./metaConnectionDiagnosticsService');
+  const { CredentialVault } = require('../security/credentialVault');
   const pool = store.repository.pool;
-  const signupService = new MetaEmbeddedSignupService({ graphVersion: env.META_GRAPH_VERSION, appId: env.META_APP_ID, appSecret: env.META_APP_SECRET });
-  signupService.assertConfigured();
-  const vault = new CredentialVault({ env });
-  const protection = new MetaSignupProtection(pool);
-  const router = createMetaSignupRouter({ enabled: true, pool, signupService, vault, origin: config.origin,
-    publicConfig: { appId: env.META_APP_ID, configId: env.META_EMBEDDED_SIGNUP_CONFIG_ID, graphVersion: env.META_GRAPH_VERSION } });
+  const signupService = new MetaEmbeddedSignupService({ graphVersion: env.META_GRAPH_VERSION, appId: env.META_APP_ID, appSecret: env.META_APP_SECRET }); signupService.assertConfigured();
+  const vault = new CredentialVault({ env }); const protection = new MetaSignupProtection(pool);
+  const repository = new MetaConnectionLifecycleRepository(pool, vault);
+  const diagnostics = new MetaConnectionDiagnosticsService({ repository, graphVersion: env.META_GRAPH_VERSION });
+  const router = createMetaSignupRouter({ enabled: true, pool, signupService, vault, origin: config.origin, publicConfig: { appId: env.META_APP_ID, configId: env.META_EMBEDDED_SIGNUP_CONFIG_ID, graphVersion: env.META_GRAPH_VERSION } });
+  const connectionsRouter = createMetaConnectionRouter({ enabled: true, pool, repository, diagnostics, origin: config.origin });
   let timer = null; let running = false; let lastSuccessAt = null; let lastFailureAt = null;
   async function cleanup() {
-    if (running) return;
-    running = true;
+    if (running) return; running = true;
     try { const counts = await protection.cleanup(500); lastSuccessAt = new Date().toISOString(); logger.info?.('Meta signup cleanup completed', counts); }
     catch { lastFailureAt = new Date().toISOString(); logger.error?.('Meta signup cleanup failed'); }
     finally { running = false; }
   }
-  return { enabled: true, router,
+  return { enabled: true, router, connectionsRouter,
     start() { if (timer) return; void cleanup(); timer = setInterval(() => void cleanup(), config.interval); timer.unref?.(); },
     stop() { if (timer) clearInterval(timer); timer = null; },
     status: () => ({ enabled: true, cleanup: running ? 'running' : 'scheduled', lastSuccessAt, lastFailureAt }), cleanup };
