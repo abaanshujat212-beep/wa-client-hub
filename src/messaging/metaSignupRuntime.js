@@ -26,7 +26,6 @@ function createMetaSignupRuntime({ env = process.env, store, logger = console } 
   const config = validateMetaSignupConfig(env, store);
   if (!config.enabled) return {
     enabled: false,
-    // Keep default-off independent of PostgreSQL, Meta and vault setup.
     router: (_req, res) => res.status(404).json({ error: 'Not found' }),
     start() {}, stop() {}, status: () => ({ enabled: false, cleanup: 'disabled' }),
   };
@@ -38,31 +37,19 @@ function createMetaSignupRuntime({ env = process.env, store, logger = console } 
   signupService.assertConfigured();
   const vault = new CredentialVault({ env });
   const protection = new MetaSignupProtection(pool);
-  const router = createMetaSignupRouter({ enabled: true, pool, signupService, vault, origin: config.origin });
+  const router = createMetaSignupRouter({ enabled: true, pool, signupService, vault, origin: config.origin,
+    publicConfig: { appId: env.META_APP_ID, configId: env.META_EMBEDDED_SIGNUP_CONFIG_ID, graphVersion: env.META_GRAPH_VERSION } });
   let timer = null; let running = false; let lastSuccessAt = null; let lastFailureAt = null;
   async function cleanup() {
     if (running) return;
     running = true;
-    try {
-      const counts = await protection.cleanup(500);
-      lastSuccessAt = new Date().toISOString();
-      logger.info?.('Meta signup cleanup completed', counts);
-    } catch {
-      lastFailureAt = new Date().toISOString();
-      logger.error?.('Meta signup cleanup failed');
-    } finally { running = false; }
+    try { const counts = await protection.cleanup(500); lastSuccessAt = new Date().toISOString(); logger.info?.('Meta signup cleanup completed', counts); }
+    catch { lastFailureAt = new Date().toISOString(); logger.error?.('Meta signup cleanup failed'); }
+    finally { running = false; }
   }
-  return {
-    enabled: true, router,
-    start() {
-      if (timer) return;
-      void cleanup();
-      timer = setInterval(() => void cleanup(), config.interval);
-      timer.unref?.();
-    },
+  return { enabled: true, router,
+    start() { if (timer) return; void cleanup(); timer = setInterval(() => void cleanup(), config.interval); timer.unref?.(); },
     stop() { if (timer) clearInterval(timer); timer = null; },
-    status: () => ({ enabled: true, cleanup: running ? 'running' : 'scheduled', lastSuccessAt, lastFailureAt }),
-    cleanup,
-  };
+    status: () => ({ enabled: true, cleanup: running ? 'running' : 'scheduled', lastSuccessAt, lastFailureAt }), cleanup };
 }
 module.exports = { createMetaSignupRuntime, validateMetaSignupConfig, parseInterval, enabled };

@@ -1,13 +1,1 @@
-(function(){
-  function addClientHelpPanel(){
-    var accountsView = document.querySelector('#accountsView');
-    if(!accountsView || document.querySelector('#clientHelpPanel')) return;
-    var panel = document.createElement('div');
-    panel.id = 'clientHelpPanel';
-    panel.className = 'notice';
-    panel.innerHTML = '<strong>Client quick actions</strong><p>1) Create/select workspace  2) Add WhatsApp number  3) Click Link account/Open WhatsApp  4) Open Remote Desktop if configured  5) Allow microphone/camera in Chrome or Edge.</p>';
-    accountsView.appendChild(panel);
-  }
-  window.addEventListener('load', addClientHelpPanel);
-  setInterval(addClientHelpPanel, 3000);
-})();
+(function(){function panel(){var v=document.querySelector('#accountsView');if(!v||document.querySelector('#clientHelpPanel'))return;var p=document.createElement('div');p.id='clientHelpPanel';p.className='notice';p.innerHTML='<strong>Client quick actions</strong><p>1) Create/select workspace  2) Connect with official Meta signup or add a legacy number  3) Keep official connections disabled until verified.</p>';v.appendChild(p);}function load(){if(document.querySelector('script[data-meta-signup]'))return;var s=document.createElement('script');s.src='/meta-signup.js';s.defer=true;s.dataset.metaSignup='1';document.head.appendChild(s);}window.addEventListener('load',function(){panel();load();});setInterval(panel,3000);})();

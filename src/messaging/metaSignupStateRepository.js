@@ -27,6 +27,15 @@ class MetaSignupStateRepository {
     );
     return { expiresAt: new Date(result.rows[0].expires_at).toISOString() };
   }
+  async cancel({ state, sessionId, actorId }) {
+    if (!validState(state) || !validIdentity(sessionId) || !validIdentity(actorId)) return false;
+    const result = await this.pool.query(
+      `DELETE FROM meta_signup_states
+       WHERE state_hash=$1 AND session_hash=$2 AND actor_id=$3`,
+      [digest(state, "meta-state"), digest(sessionId, "meta-session"), actorId],
+    );
+    return result.rowCount === 1;
+  }
   async consume({ state, sessionId, actorId }) {
     if (!validState(state) || !validIdentity(sessionId) || !validIdentity(actorId)) return null;
     // Autocommit DELETE is the claim. Never roll it back with provider/install work.
