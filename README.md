@@ -188,6 +188,154 @@ Recommended next production phases:
 6. Encrypted secret storage, backups, audit reporting, and monitoring
 7. Customer terms covering WhatsApp rules and acceptable use
 
+## macOS Local Development
+
+The Node.js/Express backend, JSON storage, PostgreSQL client, Redis client, migrations, and npm scripts use portable Node APIs and run on macOS. Docker Desktop can run the control plane on Intel and Apple Silicon Macs. The legacy local WhatsApp Web browser launcher is intentionally Windows-only; this does not prevent backend/API development on macOS.
+
+### Prerequisites
+
+Install Git, Node.js 22 LTS, Docker Desktop with Docker Compose v2, and Xcode Command Line Tools if native build tooling is missing. Node 20 or newer is accepted by `package.json`.
+
+```sh
+git --version
+node --version
+npm --version
+docker version
+docker compose version
+uname -m
+```
+
+`uname -m` prints `arm64` on Apple Silicon and `x86_64` on Intel Macs.
+
+### Clone and install
+
+```sh
+git clone https://github.com/abaanshujat212-beep/wa-client-hub.git
+cd wa-client-hub
+npm ci
+```
+
+### Create `.env` and local secrets
+
+```sh
+cp .env.example .env
+SESSION_SECRET="$(openssl rand -hex 32)"
+CONNECTOR_MASTER_KEY="$(openssl rand -base64 32)"
+sed -i '' "s|^SESSION_SECRET=.*|SESSION_SECRET=${SESSION_SECRET}|" .env
+sed -i '' "s|^CONNECTOR_MASTER_KEY=.*|CONNECTOR_MASTER_KEY=${CONNECTOR_MASTER_KEY}|" .env
+```
+
+Edit `.env` and retain these local-development settings:
+
+```env
+NODE_ENV=development
+STORE_DRIVER=json
+COOKIE_SECURE=false
+MOCK_BROWSER=1
+META_SIGNUP_ENABLED=false
+META_WEBHOOK_ENABLED=false
+YCLOUD_ENABLED=false
+YCLOUD_WEBHOOK_ENABLED=false
+```
+
+`MOCK_BROWSER=1` prevents the Windows-only **Link account** action from trying to launch a browser profile. It does not create a WhatsApp session or enable calls.
+
+### Run the Node app
+
+```sh
+npm run dev
+```
+
+Or run without file watching:
+
+```sh
+npm start
+```
+
+Open `http://127.0.0.1:3131`. Stop with `Control-C`.
+
+### Run Docker services
+
+```sh
+cp .env.docker.example .env.docker
+POSTGRES_PASSWORD="$(openssl rand -hex 24)"
+SESSION_SECRET="$(openssl rand -hex 32)"
+ADMIN_PASSWORD="$(openssl rand -base64 24 | tr -d '\n')"
+CONNECTOR_MASTER_KEY="$(openssl rand -base64 32)"
+OPENWA_API_KEY="$(openssl rand -hex 32)"
+OPENWA_WEBHOOK_SECRET="$(openssl rand -hex 32)"
+sed -i '' "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${POSTGRES_PASSWORD}|" .env.docker
+sed -i '' "s|^SESSION_SECRET=.*|SESSION_SECRET=${SESSION_SECRET}|" .env.docker
+sed -i '' "s|^ADMIN_PASSWORD=.*|ADMIN_PASSWORD=${ADMIN_PASSWORD}|" .env.docker
+sed -i '' "s|^CONNECTOR_MASTER_KEY=.*|CONNECTOR_MASTER_KEY=${CONNECTOR_MASTER_KEY}|" .env.docker
+sed -i '' "s|^OPENWA_API_KEY=.*|OPENWA_API_KEY=${OPENWA_API_KEY}|" .env.docker
+sed -i '' "s|^OPENWA_WEBHOOK_SECRET=.*|OPENWA_WEBHOOK_SECRET=${OPENWA_WEBHOOK_SECRET}|" .env.docker
+
+docker compose --env-file .env.docker config
+docker compose --env-file .env.docker up --build -d --wait
+curl -fsS http://127.0.0.1:3131/api/ready
+docker compose --env-file .env.docker ps
+```
+
+View logs and stop without deleting named volumes:
+
+```sh
+docker compose --env-file .env.docker logs -f app migrate postgres redis
+docker compose --env-file .env.docker down
+```
+
+Do not use `docker compose down --volumes` unless local data may be deleted.
+
+### Apple Silicon and OpenWA
+
+The app, PostgreSQL 16, and Redis 7 images support arm64. OpenWA remains optional, unofficial, and disabled unless its Compose profile is selected. Upstream information is inconsistent: Docker Hub exposes an arm64 variant, while OpenWA documentation warns Chromium may not work on ARM.
+
+Try the normal OpenWA command first:
+
+```sh
+docker compose --env-file .env.docker --profile openwa \
+  -f compose.yml -f compose.openwa-local.yml up -d openwa
+```
+
+If the pinned image or Chromium fails on Apple Silicon, enable Docker Desktop's Rosetta/x86 emulation and add the explicit amd64 override:
+
+```sh
+docker compose --env-file .env.docker --profile openwa \
+  -f compose.yml -f compose.openwa-local.yml -f compose.openwa-macos-arm64.yml \
+  up -d openwa
+```
+
+The fallback can be slower and remains best-effort. Verify QR enrollment, restart persistence, send, receive, and webhook delivery on the target Mac. Official Meta and YCloud transports do not depend on OpenWA.
+
+Apache Guacamole is optional and is only a gateway to a separate Windows RDP host; it is not required for Mac backend development.
+
+### Run tests
+
+```sh
+npm test
+```
+
+PostgreSQL tests skip when `TEST_DATABASE_URL` is absent. To run the complete suite using an isolated Docker database:
+
+```sh
+docker run --rm -d --name wa-hub-test-postgres \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=wa_client_hub_test \
+  -p 127.0.0.1:55432:5432 \
+  postgres:16.10-bookworm
+until docker exec wa-hub-test-postgres pg_isready -U postgres -d wa_client_hub_test; do sleep 1; done
+TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/wa_client_hub_test npm test
+docker rm -f wa-hub-test-postgres
+```
+
+### Known limitations
+
+- Real local profile launch, browser calls, `taskkill`, RDP, and the `.rdp` helper remain Windows-specific.
+- Keep `MOCK_BROWSER=1` for Mac dashboard/API development.
+- Leave `REMOTE_DESKTOP_URL` empty unless connecting to a separately secured Windows host.
+- Runtime paths use portable Node filesystem APIs; no Windows path conversion is required.
+
 ## Security notes
 
 - Never commit `.env`, `data`, or `runtime` directories.
@@ -197,6 +345,9 @@ Recommended next production phases:
 - Enforce workspace access and plan limits on the backend.
 - This project does not scrape chats or automate bulk messaging.
 - WhatsApp can change WhatsApp Web behavior, limits, and calling availability.
+- Never expose PostgreSQL, Redis, OpenWA, or Guacamole publicly.
+- Keep official provider credentials server-side and encrypted.
+- Use only dedicated test numbers with the unofficial OpenWA adapter.
 
 ## Development
 

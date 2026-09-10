@@ -25,6 +25,23 @@ docker compose --env-file .env.docker --profile openwa -f compose.yml -f compose
 
 After linking, return to the normal command without this override so port 8080 is not published at all.
 
+### macOS and Apple Silicon
+
+Docker Desktop can run the WA Client Hub control plane on macOS, but OpenWA must be validated separately. Upstream Docker Hub currently advertises amd64 and arm64 variants while OpenWA's own Docker documentation warns that Chromium may not run on ARM. This repository also pins a digest, so support advertised for `latest` does not prove that the pinned runtime works natively.
+
+On Apple Silicon, try the normal command first. If the image cannot be pulled for arm64 or Chromium exits, enable Rosetta/x86 emulation in Docker Desktop and add the repository fallback override:
+
+```sh
+docker compose --env-file .env.docker --profile openwa \
+  -f compose.yml -f compose.openwa-local.yml -f compose.openwa-macos-arm64.yml \
+  up -d openwa
+docker compose --env-file .env.docker --profile openwa \
+  -f compose.yml -f compose.openwa-local.yml -f compose.openwa-macos-arm64.yml \
+  logs -f openwa
+```
+
+Emulation is slower and is not a production guarantee. A Mac smoke test must verify QR enrollment, session persistence after restart, send, receive, and webhook delivery. Official Meta and YCloud transports do not use the OpenWA browser container.
+
 The OpenWA image is pinned by digest and the runtime library is pinned to `4.76.0`. Its port is not published. The service has outbound egress for package verification and WhatsApp connectivity, while its API remains reachable only inside Docker. `/sessions` is a named volume so QR linkage survives container recreation. Scan the QR only through trusted operator logs during initial setup; never expose OpenWA API docs/admin pages publicly.
 
 After adding a WhatsApp number in the dashboard, select **Enable automation**, read the risk warning, and accept it. Enabling registers the internal webhook using `registerWebhook` with `X-Webhook-Secret`. This is supported by OpenWA's webhook request configuration and avoids putting the secret in a URL.

@@ -1,0 +1,5 @@
+# Optional Apple Silicon fallback for the pinned OpenWA/Chromium image.
+# Use only if native arm64 startup fails, and enable Rosetta/x86 emulation in Docker Desktop.
+services:
+  openwa:
+    platform: linux/amd64

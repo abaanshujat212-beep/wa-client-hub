@@ -19,11 +19,36 @@ Check readiness at `http://127.0.0.1:3131/api/ready`. A ready response reports b
 
 The migration container must finish successfully and Redis must be healthy before the application starts. The application then connects to Redis and PostgreSQL before opening its HTTP listener.
 
+## macOS and Apple Silicon
+
+Docker Desktop with Compose v2 is supported for the control plane. The Node 22 Bookworm, PostgreSQL 16, and Redis 7 images used by the stack have normal arm64 support, and the application has no native Node add-ons. OpenWA is an optional browser-automation profile with separate architecture limitations documented in `docs/openwa-adapter.md`.
+
+Generate local-only values in `.env.docker`, validate the resolved Compose configuration, and start the same stack:
+
+```sh
+docker compose --env-file .env.docker config
+docker compose --env-file .env.docker up --build -d --wait
+curl -fsS http://127.0.0.1:3131/api/ready
+docker compose --env-file .env.docker ps
+```
+
+Guacamole is not required for Mac backend development. It is an optional browser gateway to a separate Windows RDP host for the legacy calling workflow.
+
 ## Data persistence and recovery
 
 `postgres_data` stores canonical application data. `redis_data` uses append-only persistence for queues and ephemeral coordination state. Normal `docker compose down`, image rebuilds, and container recreation retain both named volumes.
 
 Do not run `docker compose down --volumes` in an environment whose data must be retained. PostgreSQL volume persistence is not a backup: use `scripts/backup-postgres.ps1` and copy encrypted backups off-host. Redis is not the canonical source of business records and can be rebuilt after a disaster.
+
+The PowerShell backup and restore scripts remain Windows operator helpers. On macOS, an equivalent local development dump can be created without changing those scripts:
+
+```sh
+mkdir -p backups
+docker compose --env-file .env.docker exec -T postgres \
+  pg_dump -U "$(grep '^POSTGRES_USER=' .env.docker | cut -d= -f2-)" \
+  "$(grep '^POSTGRES_DB=' .env.docker | cut -d= -f2-)" \
+  > "backups/wa-hub-$(date +%Y%m%d-%H%M%S).sql"
+```
 
 ## Production configuration
 
