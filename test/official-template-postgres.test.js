@@ -42,6 +42,8 @@ test(`official template PostgreSQL phase: ${phase}`, { skip: !connectionString, 
     await assert.rejects(() => repository.create({ workspaceId: 'w1', numberId: 'support', name: 'No fallback', template: '', officialTemplate: { name: 'order_update', language: 'en', parameters: ['{{name}}'] }, createdBy: 'u1', contacts: [contact] }), error => error.code === 'APPROVED_TEMPLATE_REQUIRED');
     const campaign = await repository.create({ workspaceId: 'w1', numberId: 'sales', name: 'Exact template', template: '', officialTemplate: { name: 'order_update', language: 'en', parameters: ['{{name}}'] }, createdBy: 'u1', contacts: [contact] });
     assert.equal(campaign.messageMode, 'official_template');
+    if (phase === 'binding') return;
+
     await repository.setStatus(['w1'], campaign.id, 'running');
     let sendInput;
     const multi = { incr() { return this; }, expire() { return this; }, async exec() { return [1, true, 1, true]; } };
@@ -49,7 +51,7 @@ test(`official template PostgreSQL phase: ${phase}`, { skip: !connectionString, 
     assert.equal(await worker.tick(), true);
     assert.deepEqual(sendInput.template.parameters, ['Ada']);
     assert.equal(sendInput.conversationId, 'exact-conversation');
-    if (phase === 'campaign') return;
+    if (phase === 'worker') return;
 
     const claimedContact = await pool.query("SELECT id FROM contacts WHERE workspace_id='w1' AND phone_e164='+923009990000'");
     await pool.query("INSERT INTO conversations(id,workspace_id,whatsapp_number_id,contact_id) VALUES('sales-conversation','w1','sales',$1)", [claimedContact.rows[0].id]);
