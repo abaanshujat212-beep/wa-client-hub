@@ -36,7 +36,7 @@ async function bindOfficialTemplate({ pool, workspaceId, campaignId, numberId, t
       AND workspace_id = $5
       AND whatsapp_number_id = $6
     RETURNING *
-  `, [value.name, value.language, template.parameters || [], campaignId, workspaceId, numberId]);
+  `, [value.name, value.language, JSON.stringify(template.parameters || []), campaignId, workspaceId, numberId]);
   if (updated.rowCount !== 1) throw new TemplateError('CAMPAIGN_NOT_FOUND');
   return updated.rows[0];
 }
