@@ -1,0 +1,4 @@
+const crypto=require('node:crypto');
+function parseSignature(value){const match=/^t=(\d{10,13}),s=([a-f0-9]{64})$/.exec(String(value||'').trim());if(!match)return null;return{timestamp:Number(match[1]),signature:match[2]};}
+function verifyYCloudSignature(rawBody,header,secret,{now=Date.now(),toleranceSeconds=300}={}){if(!Buffer.isBuffer(rawBody)||typeof secret!=='string'||secret.length<20)return false;const parsed=parseSignature(header);if(!parsed)return false;const timestampMs=parsed.timestamp>1e12?parsed.timestamp:parsed.timestamp*1000;if(!Number.isFinite(timestampMs)||Math.abs(now-timestampMs)>toleranceSeconds*1000)return false;const expected=crypto.createHmac('sha256',secret).update(`${parsed.timestamp}.`).update(rawBody).digest('hex');return crypto.timingSafeEqual(Buffer.from(expected,'hex'),Buffer.from(parsed.signature,'hex'));}
+module.exports={parseSignature,verifyYCloudSignature};
