@@ -1,1 +1,77 @@
-const test=require('node:test');const assert=require('node:assert/strict');const{CanonicalTemplateService}=require('../src/messaging/canonicalTemplateService');function dispatch(){return{conversationId:'c',workspaceId:'w',numberId:'n',contactPhone:'+923001112222',automationEnabled:true,providerConnectionId:'p',provider:'ycloud',providerStatus:'active'};}test('template dispatch requires exact approved catalog match before reservation',async()=>{let reserved=false,sent=false;const service=new CanonicalTemplateService({repository:{resolveConversationDispatch:async()=>dispatch(),reserveOutbound:async()=>{reserved=true;}},catalog:{resolveApproved:async input=>{assert.deepEqual(input,{workspaceId:'w',providerConnectionId:'p',numberId:'n',name:'hello_world',language:'en'});return null;}},policy:{evaluateText:async()=>({consented:true,suppressed:false,sessionOpen:false})},adapters:new Map([['ycloud',{sendTemplate:async()=>{sent=true;}}]])});await assert.rejects(()=>service.sendTemplate({workspaceIds:['w'],conversationId:'c',template:{name:'hello_world',language:'en'},idempotencyKey:'k'}),e=>e.code==='APPROVED_TEMPLATE_REQUIRED');assert.equal(reserved,false);assert.equal(sent,false);});test('approved templates may send outside session through exact provider',async()=>{let providerInput,recorded;const service=new CanonicalTemplateService({repository:{resolveConversationDispatch:async()=>dispatch(),reserveOutbound:async()=>({created:true,attempt:{id:'a'}}),markDispatching:async()=>{},markProviderAccepted:async()=>{},recordOutbound:async input=>(recorded=input,{id:'m'})},catalog:{resolveApproved:async()=>({id:'t',status:'APPROVED'})},policy:{evaluateText:async()=>({consented:true,suppressed:false,sessionOpen:false})},adapters:new Map([['ycloud',{sendTemplate:async input=>(providerInput=input,{externalMessageId:'ext',rawStatus:'queued'})}]])});const result=await service.sendTemplate({actorId:'system',workspaceIds:['w'],conversationId:'c',template:{name:'hello_world',language:'en',parameters:['Ada']},idempotencyKey:'k',origin:'campaign'});assert.equal(providerInput.connection.numberId,'n');assert.equal(recorded.origin,'campaign');assert.equal(result.duplicate,false);});test('template dispatch still blocks suppression and missing consent',async()=>{for(const policy of[{consented:true,suppressed:true},{consented:false,suppressed:false}]){let catalog=false;const service=new CanonicalTemplateService({repository:{resolveConversationDispatch:async()=>dispatch()},catalog:{resolveApproved:async()=>{catalog=true;}},policy:{evaluateText:async()=>policy},adapters:new Map([['ycloud',{sendTemplate:async()=>{}}]])});await assert.rejects(()=>service.sendTemplate({workspaceIds:['w'],conversationId:'c',template:{name:'hello_world',language:'en'},idempotencyKey:'k'}),e=>['CONTACT_SUPPRESSED','CONSENT_REQUIRED'].includes(e.code));assert.equal(catalog,false);}});
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { CanonicalTemplateService } = require('../src/messaging/canonicalTemplateService');
+
+function dispatch() { return { conversationId: 'c', workspaceId: 'w', numberId: 'n', contactPhone: '+923001112222', automationEnabled: true, providerConnectionId: 'p', provider: 'ycloud', providerStatus: 'active' }; }
+function approved() { return { id: 't', status: 'APPROVED', parameter_format: 'POSITIONAL', components: [{ type: 'BODY', text: 'Hello user://3d5d872b-594c-815c-9aec-000259a6eaea' }] }; }
+function createService({ reservation, sendTemplate = async () => ({ externalMessageId: 'ext', rawStatus: 'queued' }), recordOutbound = async () => ({ id: 'm', external_message_id: 'ext' }) }) {
+  let dispatchCount = 0;
+  const repository = {
+    resolveConversationDispatch: async () => dispatch(),
+    reserveOutbound: async () => reservation,
+    markDispatching: async () => {},
+    markProviderAccepted: async () => {},
+    recordOutbound,
+    failOutbound: async () => {}
+  };
+  const service = new CanonicalTemplateService({ repository, catalog: { resolveApproved: async () => approved() }, policy: { evaluateText: async () => ({ consented: true, suppressed: false, sessionOpen: false }) }, adapters: new Map([['ycloud', { sendTemplate: async input => { dispatchCount += 1; return sendTemplate(input); } }]]) });
+  return { service, getDispatchCount: () => dispatchCount };
+}
+
+test('template validation occurs before reservation and provider dispatch', async () => {
+  let reserved = false;
+  let sent = false;
+  const service = new CanonicalTemplateService({ repository: { resolveConversationDispatch: async () => dispatch(), reserveOutbound: async () => { reserved = true; } }, catalog: { resolveApproved: async () => approved() }, policy: { evaluateText: async () => ({ consented: true, suppressed: false, sessionOpen: false }) }, adapters: new Map([['ycloud', { sendTemplate: async () => { sent = true; } }]]) });
+  await assert.rejects(() => service.sendTemplate({ workspaceIds: ['w'], conversationId: 'c', template: { name: 'hello_world', language: 'en', parameters: [] }, idempotencyKey: 'k' }), error => error.code === 'TEMPLATE_PARAMETERS_MISMATCH');
+  assert.equal(reserved, false);
+  assert.equal(sent, false);
+});
+
+test('approved templates may send outside session through exact provider', async () => {
+  const { service, getDispatchCount } = createService({ reservation: { created: true, attempt: { id: 'a' } } });
+  const result = await service.sendTemplate({ actorId: 'system', workspaceIds: ['w'], conversationId: 'c', template: { name: 'hello_world', language: 'en', parameters: ['Ada'] }, idempotencyKey: 'k', origin: 'campaign' });
+  assert.equal(result.duplicate, false);
+  assert.equal(getDispatchCount(), 1);
+});
+
+test('successful duplicate replay never redispatches', async () => {
+  const { service, getDispatchCount } = createService({ reservation: { created: false, attempt: { id: 'a', request_hash: 'placeholder' } } });
+  const originalReserve = service.repository.reserveOutbound;
+  service.repository.reserveOutbound = async input => {
+    const crypto = require('node:crypto');
+    const value = require('../src/messaging/templateCatalog').normalizeTemplate({ name: 'hello_world', language: 'en', parameters: ['Ada'] });
+    const hash = crypto.createHash('sha256').update(JSON.stringify({ conversationId: 'c', type: 'template', template: value, origin: 'api' })).digest('hex');
+    return { created: false, attempt: { id: 'a', request_hash: hash, status: 'accepted', message_id: 'm', external_message_id: 'ext' } };
+  };
+  const result = await service.sendTemplate({ workspaceIds: ['w'], conversationId: 'c', template: { name: 'hello_world', language: 'en', parameters: ['Ada'] }, idempotencyKey: 'k' });
+  assert.equal(result.duplicate, true);
+  assert.equal(result.message.id, 'm');
+  assert.equal(getDispatchCount(), 0);
+  service.repository.reserveOutbound = originalReserve;
+});
+
+test('prior failed attempt surfaces terminal idempotent failure without redispatch', async () => {
+  const { service, getDispatchCount } = createService({ reservation: { created: false, attempt: {} } });
+  service.repository.reserveOutbound = async ({ requestHash }) => ({ created: false, attempt: { id: 'a', request_hash: requestHash, status: 'failed' } });
+  await assert.rejects(() => service.sendTemplate({ workspaceIds: ['w'], conversationId: 'c', template: { name: 'hello_world', language: 'en', parameters: ['Ada'] }, idempotencyKey: 'k' }), error => error.code === 'IDEMPOTENT_SEND_FAILED');
+  assert.equal(getDispatchCount(), 0);
+});
+
+test('provider-accepted attempt recovers persistence without redispatch', async () => {
+  let recorded = 0;
+  const { service, getDispatchCount } = createService({ reservation: { created: false, attempt: {} }, recordOutbound: async input => { recorded += 1; assert.equal(input.externalMessageId, 'ext'); return { id: 'm', external_message_id: 'ext' }; } });
+  service.repository.reserveOutbound = async ({ requestHash }) => ({ created: false, attempt: { id: 'a', request_hash: requestHash, status: 'provider_accepted', external_message_id: 'ext', raw_provider_status: 'queued', message_id: null } });
+  const result = await service.sendTemplate({ workspaceIds: ['w'], conversationId: 'c', template: { name: 'hello_world', language: 'en', parameters: ['Ada'] }, idempotencyKey: 'k' });
+  assert.equal(result.recovered, true);
+  assert.equal(recorded, 1);
+  assert.equal(getDispatchCount(), 0);
+});
+
+test('template dispatch blocks suppression and missing consent before catalog lookup', async () => {
+  for (const policy of [{ consented: true, suppressed: true }, { consented: false, suppressed: false }]) {
+    let catalog = false;
+    const service = new CanonicalTemplateService({ repository: { resolveConversationDispatch: async () => dispatch() }, catalog: { resolveApproved: async () => { catalog = true; } }, policy: { evaluateText: async () => policy }, adapters: new Map([['ycloud', { sendTemplate: async () => {} }]]) });
+    await assert.rejects(() => service.sendTemplate({ workspaceIds: ['w'], conversationId: 'c', template: { name: 'hello_world', language: 'en' }, idempotencyKey: 'k' }), error => ['CONTACT_SUPPRESSED', 'CONSENT_REQUIRED'].includes(error.code));
+    assert.equal(catalog, false);
+  }
+});
