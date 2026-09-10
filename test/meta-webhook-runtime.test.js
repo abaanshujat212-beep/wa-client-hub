@@ -1,0 +1,4 @@
+const test=require('node:test');const assert=require('node:assert/strict');const{createMetaWebhookRuntime,webhookEnabled}=require('../src/messaging/metaWebhookRuntime');
+test('webhook gate is enabled by one exact value only',()=>{assert.equal(webhookEnabled({META_WEBHOOK_ENABLED:'true'}),true);for(const value of['TRUE','1','false',undefined])assert.equal(webhookEnabled({META_WEBHOOK_ENABLED:value}),false);});
+test('disabled runtime does not require storage or secrets',()=>{const runtime=createMetaWebhookRuntime({env:{}});assert.equal(runtime.enabled,false);assert.deepEqual(runtime.status(),{enabled:false,worker:'disabled'});});
+test('enabled runtime rejects incomplete production configuration',()=>{assert.throws(()=>createMetaWebhookRuntime({env:{META_WEBHOOK_ENABLED:'true'},store:{driver:'json'}}),/PostgreSQL storage.*META_APP_SECRET.*META_WEBHOOK_VERIFY_TOKEN/);});

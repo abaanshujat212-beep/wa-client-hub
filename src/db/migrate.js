@@ -3,40 +3,11 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { Pool } = require('pg');
 const { databaseConfig, assertDatabaseConfig } = require('./config');
-
 const MIGRATIONS = [
-  { id: '001_canonical_schema', file: path.resolve(__dirname, '..', '..', 'docs', 'schema.sql') },
-  { id: '002_openwa_adapter', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '002_openwa_adapter.sql') },
-  { id: '003_unified_inbox', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '003_unified_inbox.sql') },
-  { id: '004_safe_campaigns', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '004_safe_campaigns.sql') },
-  { id: '005_connector_framework', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '005_connector_framework.sql') },
-  { id: '006_provider_connectors', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '006_provider_connectors.sql') },
-  { id: '007_canonical_send', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '007_canonical_send.sql') },
-  { id: '008_meta_connections', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '008_meta_connections.sql') },
-  { id: '009_meta_signup_states', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '009_meta_signup_states.sql') },
-  { id: '010_meta_signup_rate_limits', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '010_meta_signup_rate_limits.sql') },
-  { id: '011_meta_connection_lifecycle', file: path.resolve(__dirname, '..', '..', 'docs', 'migrations', '011_meta_connection_lifecycle.sql') }
-];
-function checksum(sql) { return crypto.createHash('sha256').update(sql).digest('hex'); }
-async function runMigrations(pool, migrations = MIGRATIONS) {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN'); await client.query('SELECT pg_advisory_xact_lock($1)', [90421031]);
-    await client.query(`CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
-    for (const migration of migrations) {
-      const sql = fs.readFileSync(migration.file, 'utf8'); const hash = checksum(sql);
-      const existing = await client.query('SELECT checksum FROM schema_migrations WHERE id = $1', [migration.id]);
-      if (existing.rowCount) { if (existing.rows[0].checksum !== hash) throw new Error(`Applied migration ${migration.id} checksum has changed`); continue; }
-      await client.query(sql); await client.query('INSERT INTO schema_migrations (id, checksum) VALUES ($1, $2)', [migration.id, hash]);
-    }
-    await client.query('COMMIT');
-  } catch (error) { await client.query('ROLLBACK'); throw error; }
-  finally { client.release(); }
-}
-async function main() {
-  const config = assertDatabaseConfig({ ...databaseConfig(), driver: 'postgres' }); const pool = new Pool(config);
-  try { await runMigrations(pool); console.log(`Applied ${MIGRATIONS.length} PostgreSQL migration(s)`); }
-  finally { await pool.end(); }
-}
-if (require.main === module) main().catch(error => { console.error(error.message); process.exit(1); });
-module.exports = { MIGRATIONS, checksum, runMigrations };
+  ['001_canonical_schema','docs/schema.sql'],['002_openwa_adapter','docs/migrations/002_openwa_adapter.sql'],['003_unified_inbox','docs/migrations/003_unified_inbox.sql'],['004_safe_campaigns','docs/migrations/004_safe_campaigns.sql'],['005_connector_framework','docs/migrations/005_connector_framework.sql'],['006_provider_connectors','docs/migrations/006_provider_connectors.sql'],['007_canonical_send','docs/migrations/007_canonical_send.sql'],['008_meta_connections','docs/migrations/008_meta_connections.sql'],['009_meta_signup_states','docs/migrations/009_meta_signup_states.sql'],['010_meta_signup_rate_limits','docs/migrations/010_meta_signup_rate_limits.sql'],['011_meta_connection_lifecycle','docs/migrations/011_meta_connection_lifecycle.sql'],['012_meta_webhook_ingestion','docs/migrations/012_meta_webhook_ingestion.sql']
+].map(([id,file])=>({id,file:path.resolve(__dirname,'..','..',file)}));
+function checksum(sql){return crypto.createHash('sha256').update(sql).digest('hex');}
+async function runMigrations(pool,migrations=MIGRATIONS){const client=await pool.connect();try{await client.query('BEGIN');await client.query('SELECT pg_advisory_xact_lock($1)',[90421031]);await client.query('CREATE TABLE IF NOT EXISTS schema_migrations (id TEXT PRIMARY KEY, checksum TEXT NOT NULL, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())');for(const migration of migrations){const sql=fs.readFileSync(migration.file,'utf8'),hash=checksum(sql),existing=await client.query('SELECT checksum FROM schema_migrations WHERE id = $1',[migration.id]);if(existing.rowCount){if(existing.rows[0].checksum!==hash)throw new Error(`Applied migration ${migration.id} checksum has changed`);continue;}await client.query(sql);await client.query('INSERT INTO schema_migrations (id, checksum) VALUES ($1, $2)',[migration.id,hash]);}await client.query('COMMIT');}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}}
+async function main(){const config=assertDatabaseConfig({...databaseConfig(),driver:'postgres'}),pool=new Pool(config);try{await runMigrations(pool);console.log(`Applied ${MIGRATIONS.length} PostgreSQL migration(s)`);}finally{await pool.end();}}
+if(require.main===module)main().catch(error=>{console.error(error.message);process.exit(1);});
+module.exports={MIGRATIONS,checksum,runMigrations};
