@@ -87,9 +87,11 @@ class MetaTemplateSyncRepository {
       await this.lockExpectedTarget(client, expectedTarget);
       const target = await this.target(scope, client);
       if (!sameTarget(target, expectedTarget)) throw new MetaTemplateSyncError('META_TEMPLATE_BINDING_CHANGED');
-      const keys = [];
+      const names = [];
+      const languages = [];
       for (const template of templates) {
-        keys.push(`${template.name}\u0000${template.language}`);
+        names.push(template.name);
+        languages.push(template.language);
         await client.query(`INSERT INTO whatsapp_message_templates(
           id,workspace_id,provider_connection_id,whatsapp_number_id,provider,official_template_id,name,language,category,status,parameter_format,components,last_synced_at
         ) VALUES($1,$2,$3,$4,'whatsapp_cloud',$5,$6,$7,$8,$9,$10,$11,clock_timestamp())
@@ -98,9 +100,12 @@ class MetaTemplateSyncRepository {
           parameter_format=EXCLUDED.parameter_format,components=EXCLUDED.components,last_synced_at=clock_timestamp(),updated_at=clock_timestamp()`,
         [crypto.randomUUID(), target.workspaceId, target.connectionId, target.numberId, template.officialTemplateId, template.name, template.language, template.category, template.status, template.parameterFormat, JSON.stringify(template.components)]);
       }
-      await client.query(`UPDATE whatsapp_message_templates SET status='ARCHIVED',last_synced_at=clock_timestamp(),updated_at=clock_timestamp()
-        WHERE workspace_id=$1 AND provider_connection_id=$2 AND whatsapp_number_id=$3 AND provider='whatsapp_cloud'
-        AND NOT ((name || chr(0) || language)=ANY($4::text[]))`, [target.workspaceId, target.connectionId, target.numberId, keys]);
+      await client.query(`UPDATE whatsapp_message_templates t SET status='ARCHIVED',last_synced_at=clock_timestamp(),updated_at=clock_timestamp()
+        WHERE t.workspace_id=$1 AND t.provider_connection_id=$2 AND t.whatsapp_number_id=$3 AND t.provider='whatsapp_cloud'
+        AND NOT EXISTS (
+          SELECT 1 FROM unnest($4::text[],$5::text[]) AS remote(name,language)
+          WHERE remote.name=t.name AND remote.language=t.language
+        )`, [target.workspaceId, target.connectionId, target.numberId, names, languages]);
       await client.query("INSERT INTO audit_logs(id,user_id,action,details) VALUES($1,$2,'meta.templates.synced',$3)", [crypto.randomUUID(), scope.actorId, { workspaceId: target.workspaceId, connectionId: target.connectionId, numberId: target.numberId, templateCount: templates.length }]);
       const saved = await client.query(`SELECT id,name,language,category,status,parameter_format,components,last_synced_at
         FROM whatsapp_message_templates WHERE workspace_id=$1 AND provider_connection_id=$2 AND whatsapp_number_id=$3 AND provider='whatsapp_cloud'
