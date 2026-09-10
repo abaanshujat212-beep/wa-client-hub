@@ -10,9 +10,11 @@ const { MessagePolicyRepository } = require('../src/messaging/messagePolicy');
 const { TemplateCatalog } = require('../src/messaging/templateCatalog');
 const { CanonicalTemplateService } = require('../src/messaging/canonicalTemplateService');
 const connectionString = process.env.TEST_DATABASE_URL;
+const placeholder = value => '{' + '{' + value + '}' + '}';
+const approvedComponents = JSON.stringify([{ type: 'BODY', text: `Hello ${placeholder(1)}` }]);
 
 async function rejectBinding(pool, values) {
-  await assert.rejects(() => pool.query(`INSERT INTO whatsapp_message_templates(id,workspace_id,provider_connection_id,whatsapp_number_id,provider,name,language,category,status,components) VALUES($1,$2,$3,$4,$5,'order_update','en','UTILITY','APPROVED',$6)`, [...values, [{ type: 'BODY', text: 'Hello user://3d5d872b-594c-815c-9aec-000259a6eaea' }]]), /Invalid official template/);
+  await assert.rejects(() => pool.query(`INSERT INTO whatsapp_message_templates(id,workspace_id,provider_connection_id,whatsapp_number_id,provider,name,language,category,status,components) VALUES($1,$2,$3,$4,$5,'order_update','en','UTILITY','APPROVED',$6)`, [...values, approvedComponents]), /Invalid official template/);
 }
 
 test('official template rows and campaign dispatch remain exact across tenant, number, and provider', { skip: !connectionString, timeout: 60000 }, async () => {
@@ -27,7 +29,7 @@ test('official template rows and campaign dispatch remain exact across tenant, n
     await pool.query("INSERT INTO workspaces(id,owner_id,name,plan_id) VALUES('w1','u1','One','plan'),('w2','u2','Two','plan')");
     await pool.query("INSERT INTO provider_connections(id,workspace_id,provider,label,status) VALUES('meta','w1','whatsapp_cloud','Sales','active'),('ycloud','w1','ycloud','Support','active'),('other-meta','w2','whatsapp_cloud','Other','active')");
     await pool.query("INSERT INTO whatsapp_numbers(id,owner_id,workspace_id,label,phone,provider_connection_id,automation_enabled) VALUES('sales','u1','w1','Sales','+923001110000','meta',true),('support','u1','w1','Support','+923002220000','ycloud',true),('other','u2','w2','Other','+923003330000','other-meta',true)");
-    await pool.query(`INSERT INTO whatsapp_message_templates(id,workspace_id,provider_connection_id,whatsapp_number_id,provider,name,language,category,status,components) VALUES('valid','w1','meta','sales','whatsapp_cloud','order_update','en','UTILITY','APPROVED',$1)`, [[{ type: 'BODY', text: 'Hello user://3d5d872b-594c-815c-9aec-000259a6eaea' }]]);
+    await pool.query(`INSERT INTO whatsapp_message_templates(id,workspace_id,provider_connection_id,whatsapp_number_id,provider,name,language,category,status,components) VALUES('valid','w1','meta','sales','whatsapp_cloud','order_update','en','UTILITY','APPROVED',$1)`, [approvedComponents]);
 
     await rejectBinding(pool, ['wrong-workspace', 'w2', 'meta', 'sales', 'whatsapp_cloud']);
     await rejectBinding(pool, ['wrong-provider', 'w1', 'meta', 'sales', 'ycloud']);
