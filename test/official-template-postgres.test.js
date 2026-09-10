@@ -5,7 +5,7 @@ const { Pool } = require('pg');
 const { runMigrations } = require('../src/db/migrate');
 const connectionString = process.env.TEST_DATABASE_URL;
 const expected = process.env.TEMPLATE_EXPECTED || 'success';
-const known = new Set(['fk_template_provider_binding','fk_template_number_binding','whatsapp_message_templates_provider_check','whatsapp_message_templates_name_check','whatsapp_message_templates_language_check','whatsapp_message_templates_category_check','whatsapp_message_templates_status_check']);
+const known = new Set(['23502','23503','23505','23514','P0001','22P02']);
 test(`template insert diagnostic: ${expected}`, { skip: !connectionString, timeout: 60000 }, async () => {
   const schema = `official_template_${crypto.randomBytes(6).toString('hex')}`;
   const admin = new Pool({ connectionString });
@@ -24,8 +24,8 @@ test(`template insert diagnostic: ${expected}`, { skip: !connectionString, timeo
     } catch (caught) { error = caught; }
     if (expected === 'success') return assert.equal(error, undefined);
     assert.ok(error);
-    if (expected === 'other') return assert.equal(known.has(error.constraint), false);
-    assert.equal(error.constraint, expected);
+    if (expected === 'other') return assert.equal(known.has(error.code), false);
+    assert.equal(error.code, expected);
   } finally {
     await pool.end();
     await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

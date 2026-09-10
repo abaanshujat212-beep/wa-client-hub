@@ -26,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        expected: [success, fk_template_provider_binding, fk_template_number_binding, whatsapp_message_templates_provider_check, whatsapp_message_templates_name_check, whatsapp_message_templates_language_check, whatsapp_message_templates_category_check, whatsapp_message_templates_status_check, other]
+        expected: [success, '23502', '23503', '23505', '23514', P0001, 22P02, other]
     services:
       postgres:
         image: postgres:16-alpine
