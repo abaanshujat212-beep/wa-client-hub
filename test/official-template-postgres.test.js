@@ -14,7 +14,7 @@ const phase = process.env.TEMPLATE_TEST_PHASE || 'idempotency';
 const placeholder = value => '{' + '{' + value + '}' + '}';
 const approvedComponents = JSON.stringify([{ type: 'BODY', text: `Hello ${placeholder(1)}` }]);
 async function rejectBinding(pool, values) {
-  await assert.rejects(pool.query(`INSERT INTO whatsapp_message_templates(id,workspace_id,provider_connection_id,whatsapp_number_id,provider,name,language,category,status,components) VALUES($1,$2,$3,$4,$5,'order_update','en','UTILITY','APPROVED',$6)`, [...values, approvedComponents]));
+  await assert.rejects(pool.query(`INSERT INTO whatsapp_message_templates(id,workspace_id,provider_connection_id,whatsapp_number_id,provider,name,language,category,status,components) VALUES($1,$2,$3,$4,$5,'order_update','en','UTILITY','APPROVED',($6::text)::jsonb)`, [...values, approvedComponents]));
 }
 test(`official template PostgreSQL phase: ${phase}`, { skip: !connectionString, timeout: 60000 }, async () => {
   const schema = `official_template_${crypto.randomBytes(6).toString('hex')}`;
@@ -33,7 +33,7 @@ test(`official template PostgreSQL phase: ${phase}`, { skip: !connectionString, 
     if (phase === 'connections') return;
     await pool.query("INSERT INTO whatsapp_numbers(id,owner_id,workspace_id,label,phone,provider_connection_id,automation_enabled) VALUES('sales','u1','w1','Sales','+923001110000','meta',true),('support','u1','w1','Support','+923002220000','ycloud',true),('other','u2','w2','Other','+923003330000','other-meta',true)");
     if (phase === 'numbers') return;
-    await pool.query(`INSERT INTO whatsapp_message_templates(id,workspace_id,provider_connection_id,whatsapp_number_id,provider,name,language,category,status,components) VALUES('valid','w1','meta','sales','whatsapp_cloud','order_update','en','UTILITY','APPROVED',$1)`, [approvedComponents]);
+    await pool.query(`INSERT INTO whatsapp_message_templates(id,workspace_id,provider_connection_id,whatsapp_number_id,provider,name,language,category,status,components) VALUES('valid','w1','meta','sales','whatsapp_cloud','order_update','en','UTILITY','APPROVED',($1::text)::jsonb)`, [approvedComponents]);
     if (phase === 'valid') return;
     await rejectBinding(pool, ['wrong-workspace', 'w2', 'meta', 'sales', 'whatsapp_cloud']);
     await rejectBinding(pool, ['wrong-provider', 'w1', 'meta', 'sales', 'ycloud']);
