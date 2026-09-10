@@ -4,8 +4,9 @@ const { normalizeTemplate, validateApprovedTemplate, TemplateCatalog } = require
 const { MetaCloudApiAdapter } = require('../src/messaging/metaCloudApiAdapter');
 const { YCloudMessagingAdapter } = require('../src/messaging/ycloudMessagingAdapter');
 
-const positional = { parameter_format: 'POSITIONAL', components: [{ type: 'BODY', text: 'Hello user://3d5d872b-594c-815c-9aec-000259a6eaea, order 3d5d872b-594c-815c-9aec-000259a6eaea' }] };
-const named = { parameter_format: 'NAMED', components: [{ type: 'BODY', text: 'Hello {{customer_name}}, order {{order_id}}' }] };
+const placeholder = value => '{' + '{' + value + '}' + '}';
+const positional = { parameter_format: 'POSITIONAL', components: [{ type: 'BODY', text: `Hello ${placeholder(1)}, order ${placeholder(2)}` }] };
+const named = { parameter_format: 'NAMED', components: [{ type: 'BODY', text: `Hello ${placeholder('customer_name')}, order ${placeholder('order_id')}` }] };
 
 test('template normalization rejects malformed, null, and missing-text parameters', () => {
   assert.deepEqual(normalizeTemplate({ name: 'order_update', language: 'en_US', parameters: ['Ada', { text: '42', parameterName: 'order_id' }] }), { name: 'order_update', language: 'en_US', components: [{ type: 'body', parameters: [{ type: 'text', text: 'Ada' }, { type: 'text', text: '42', parameter_name: 'order_id' }] }] });
