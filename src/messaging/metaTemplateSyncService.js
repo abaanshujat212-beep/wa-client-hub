@@ -17,7 +17,7 @@ function normalizeRemoteTemplate(input) {
   const status = String(input.status || '').trim().toUpperCase();
   const category = String(input.category || '').trim().toUpperCase();
   const parameterFormat = String(input.parameter_format || 'POSITIONAL').trim().toUpperCase();
-  if (!officialTemplateId || officialTemplateId.length > 256 || !/^[a-z0-9_]{1,512}$/.test(name) || !/^[a-z]{2,3}(?:_[A-Z]{2})?$/.test(language) || !STATUSES.has(status) || !CATEGORIES.has(category) || !FORMATS.has(parameterFormat) || !Array.isArray(input.components)) throw payloadError();
+  if (!/^\d{1,256}$/.test(officialTemplateId) || !/^[a-z0-9_]{1,512}$/.test(name) || !/^[a-z]{2,3}(?:_[A-Z]{2})?$/.test(language) || !STATUSES.has(status) || !CATEGORIES.has(category) || !FORMATS.has(parameterFormat) || !Array.isArray(input.components)) throw payloadError();
   let components;
   try {
     const encoded = JSON.stringify(input.components);
@@ -42,8 +42,11 @@ class MetaTemplateSyncService {
 
   async sync(scope) {
     const target = await this.repository.target(scope);
+    const expectedTarget = { workspaceId: target.workspaceId, connectionId: target.connectionId, numberId: target.numberId, wabaId: target.wabaId };
     const templates = [];
     const seen = new Set();
+    const seenOfficialIds = new Set();
+    const seenCursors = new Set();
     let after = null;
     for (let page = 0; page < this.maxPages; page += 1) {
       let payload;
@@ -61,15 +64,17 @@ class MetaTemplateSyncService {
       for (const raw of payload.data) {
         const template = normalizeRemoteTemplate(raw);
         const key = `${template.name}\u0000${template.language}`;
-        if (seen.has(key)) throw payloadError();
+        if (seen.has(key) || seenOfficialIds.has(template.officialTemplateId)) throw payloadError();
         seen.add(key);
+        seenOfficialIds.add(template.officialTemplateId);
         templates.push(template);
         if (templates.length > 2000) throw payloadError();
       }
       const cursor = payload.paging?.cursors?.after;
-      if (!cursor || !payload.paging?.next) return { templates: await this.repository.replace(scope, templates), count: templates.length };
+      if (!cursor || !payload.paging?.next) return { templates: await this.repository.replace(scope, templates, expectedTarget), count: templates.length };
       after = String(cursor);
-      if (!after || after.length > 2048) throw payloadError();
+      if (!after || after.length > 2048 || seenCursors.has(after)) throw payloadError();
+      seenCursors.add(after);
     }
     throw new MetaTemplateSyncError('META_TEMPLATE_PAGE_LIMIT');
   }

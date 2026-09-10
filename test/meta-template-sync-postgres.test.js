@@ -23,9 +23,16 @@ test('Meta template sync persists and archives only the exact tenant connection 
     const scope = { actorId: 'admin', workspaceId: 'w1', connectionId: 'meta1' };
     const target = await repository.target(scope);
     assert.deepEqual(target, { workspaceId: 'w1', connectionId: 'meta1', numberId: 'sales', wabaId: '111', accessToken: 'server-token' });
+    const expectedTarget = { workspaceId: target.workspaceId, connectionId: target.connectionId, numberId: target.numberId, wabaId: target.wabaId };
     const first = [{ officialTemplateId: 't1', name: 'order_update', language: 'en', category: 'UTILITY', status: 'APPROVED', parameterFormat: 'POSITIONAL', components: [{ type: 'BODY', text: 'Hello' }] }];
-    assert.equal((await repository.replace(scope, first))[0].status, 'APPROVED');
-    await repository.replace(scope, []);
+
+    await pool.query("UPDATE meta_connection_assets SET waba_id='999' WHERE provider_connection_id='meta1'");
+    await assert.rejects(repository.replace(scope, first, expectedTarget), error => error.code === 'META_TEMPLATE_BINDING_CHANGED');
+    assert.equal((await pool.query("SELECT count(*)::int AS count FROM whatsapp_message_templates WHERE workspace_id='w1'")).rows[0].count, 0);
+    await pool.query("UPDATE meta_connection_assets SET waba_id='111' WHERE provider_connection_id='meta1'");
+
+    assert.equal((await repository.replace(scope, first, expectedTarget))[0].status, 'APPROVED');
+    await repository.replace(scope, [], expectedTarget);
     assert.equal((await repository.list(scope))[0].status, 'ARCHIVED');
     const crossTenant = await pool.query("SELECT count(*)::int AS count FROM whatsapp_message_templates WHERE workspace_id='w2'");
     assert.equal(crossTenant.rows[0].count, 0);

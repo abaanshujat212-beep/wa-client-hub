@@ -15,29 +15,39 @@ test('Graph query values are encoded and unsafe query shapes fail before fetch',
   assert.throws(() => validQuery({ fields: { secret: true } }), /query/);
 });
 
-test('template sync paginates by opaque cursor and replaces one exact catalog', async () => {
+test('template sync paginates by opaque cursor and binds persistence to the fetched target', async () => {
   const calls = [];
   let replaced;
+  const exactTarget = { workspaceId: 'w', connectionId: 'p', numberId: 'n', wabaId: '123', accessToken: 'secret' };
   const repository = {
-    async target(scope) { assert.deepEqual(scope, { actorId: 'u', workspaceId: 'w', connectionId: 'p' }); return { wabaId: '123', accessToken: 'secret' }; },
-    async replace(scope, templates) { replaced = { scope, templates }; return templates; }
+    async target(scope) { assert.deepEqual(scope, { actorId: 'u', workspaceId: 'w', connectionId: 'p' }); return exactTarget; },
+    async replace(scope, templates, expectedTarget) { replaced = { scope, templates, expectedTarget }; return templates; }
   };
   const graphClient = { async request(input) { calls.push(input); return calls.length === 1 ? { data: [remote()], paging: { next: 'untrusted-url', cursors: { after: 'cursor-1' } } } : { data: [remote({ id: '124', name: 'receipt_ready', language: 'en' })] }; } };
   const result = await new MetaTemplateSyncService({ repository, graphClient }).sync({ actorId: 'u', workspaceId: 'w', connectionId: 'p' });
   assert.equal(result.count, 2);
   assert.equal(calls[1].query.after, 'cursor-1');
   assert.equal(calls[1].accessToken, 'secret');
+  assert.deepEqual(replaced.expectedTarget, { workspaceId: 'w', connectionId: 'p', numberId: 'n', wabaId: '123' });
   assert.equal(replaced.templates[0].parameterFormat, 'POSITIONAL');
   assert.equal(JSON.stringify(result).includes('secret'), false);
 });
 
 test('invalid or duplicate provider templates fail closed without persistence', async () => {
   let writes = 0;
-  const repository = { async target() { return { wabaId: '123', accessToken: 'secret' }; }, async replace() { writes += 1; } };
-  for (const data of [[remote({ status: 'UNKNOWN' })], [remote(), remote({ id: 'duplicate' })], [{ ...remote(), components: null }]]) {
+  const repository = { async target() { return { workspaceId: 'w', connectionId: 'p', numberId: 'n', wabaId: '123', accessToken: 'secret' }; }, async replace() { writes += 1; } };
+  for (const data of [[remote({ status: 'UNKNOWN' })], [remote(), remote({ id: '124' })], [remote(), remote({ name: 'receipt_ready' })], [{ ...remote(), components: null }], [remote({ id: 'not-numeric' })]]) {
     const service = new MetaTemplateSyncService({ repository, graphClient: { async request() { return { data }; } } });
     await assert.rejects(service.sync({ actorId: 'u', workspaceId: 'w', connectionId: 'p' }), error => error.code === 'META_TEMPLATE_PAYLOAD_INVALID');
   }
+  assert.equal(writes, 0);
+});
+
+test('repeated provider pagination cursors fail closed', async () => {
+  let writes = 0;
+  const repository = { async target() { return { workspaceId: 'w', connectionId: 'p', numberId: 'n', wabaId: '123', accessToken: 'secret' }; }, async replace() { writes += 1; } };
+  const service = new MetaTemplateSyncService({ repository, graphClient: { async request() { return { data: [], paging: { next: 'ignored', cursors: { after: 'same-cursor' } } }; } } });
+  await assert.rejects(service.sync({ actorId: 'u', workspaceId: 'w', connectionId: 'p' }), error => error.code === 'META_TEMPLATE_PAYLOAD_INVALID');
   assert.equal(writes, 0);
 });
 

@@ -25,6 +25,14 @@ function safeTemplate(row) {
   };
 }
 
+function sameTarget(actual, expected) {
+  if (!expected) return true;
+  return actual.workspaceId === expected.workspaceId
+    && actual.connectionId === expected.connectionId
+    && actual.numberId === expected.numberId
+    && actual.wabaId === expected.wabaId;
+}
+
 class MetaTemplateSyncRepository {
   constructor(pool, vault) {
     if (typeof pool?.query !== 'function' || typeof pool?.connect !== 'function') throw new TypeError('PostgreSQL pool is required');
@@ -33,13 +41,13 @@ class MetaTemplateSyncRepository {
     this.vault = vault;
   }
 
-  async target({ actorId, workspaceId, connectionId }, executor = this.pool) {
+  async target({ actorId, workspaceId, connectionId }, executor = this.pool, { lock = false } = {}) {
     const result = await executor.query(`SELECT p.id,p.workspace_id,p.encrypted_credentials,p.encryption_key_id,a.waba_id,n.id AS whatsapp_number_id
       FROM users u JOIN provider_connections p ON p.workspace_id=$2
       JOIN meta_connection_assets a ON a.provider_connection_id=p.id AND a.workspace_id=p.workspace_id
       JOIN whatsapp_numbers n ON n.provider_connection_id=p.id AND n.workspace_id=p.workspace_id
       WHERE u.id=$1 AND p.id=$3 AND p.provider='whatsapp_cloud' AND p.status='active'
-      AND a.disconnected_at IS NULL AND ${managerPredicate}`, [actorId, workspaceId, connectionId]);
+      AND a.disconnected_at IS NULL AND ${managerPredicate}${lock ? '\n      FOR UPDATE OF p,a,n' : ''}`, [actorId, workspaceId, connectionId]);
     if (!result.rowCount) throw new MetaTemplateSyncError('META_CONNECTION_NOT_FOUND');
     if (result.rowCount !== 1) throw new MetaTemplateSyncError('META_TEMPLATE_BINDING_INVALID');
     const row = result.rows[0];
@@ -59,11 +67,12 @@ class MetaTemplateSyncRepository {
     return result.rows.map(safeTemplate);
   }
 
-  async replace(scope, templates) {
+  async replace(scope, templates, expectedTarget = null) {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      const target = await this.target(scope, client);
+      const target = await this.target(scope, client, { lock: true });
+      if (!sameTarget(target, expectedTarget)) throw new MetaTemplateSyncError('META_TEMPLATE_BINDING_CHANGED');
       const keys = [];
       for (const template of templates) {
         keys.push(`${template.name}\u0000${template.language}`);
@@ -91,4 +100,4 @@ class MetaTemplateSyncRepository {
   }
 }
 
-module.exports = { MetaTemplateSyncRepository, MetaTemplateSyncError, safeTemplate };
+module.exports = { MetaTemplateSyncRepository, MetaTemplateSyncError, safeTemplate, sameTarget };
