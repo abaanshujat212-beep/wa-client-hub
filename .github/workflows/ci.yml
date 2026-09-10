@@ -57,7 +57,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        phase: [isolation, binding, worker, idempotency]
+        phase: [migration, valid, wrong-workspace, wrong-provider, wrong-number, binding, worker, idempotency]
     services:
       postgres:
         image: postgres:16-alpine

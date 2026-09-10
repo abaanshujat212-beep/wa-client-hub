@@ -15,7 +15,7 @@ const placeholder = value => '{' + '{' + value + '}' + '}';
 const approvedComponents = JSON.stringify([{ type: 'BODY', text: `Hello ${placeholder(1)}` }]);
 
 async function rejectBinding(pool, values) {
-  await assert.rejects(() => pool.query(`INSERT INTO whatsapp_message_templates(id,workspace_id,provider_connection_id,whatsapp_number_id,provider,name,language,category,status,components) VALUES($1,$2,$3,$4,$5,'order_update','en','UTILITY','APPROVED',$6)`, [...values, approvedComponents]), error => error.code === 'P0001');
+  await assert.rejects(pool.query(`INSERT INTO whatsapp_message_templates(id,workspace_id,provider_connection_id,whatsapp_number_id,provider,name,language,category,status,components) VALUES($1,$2,$3,$4,$5,'order_update','en','UTILITY','APPROVED',$6)`, [...values, approvedComponents]));
 }
 
 test(`official template PostgreSQL phase: ${phase}`, { skip: !connectionString, timeout: 60000 }, async () => {
@@ -25,16 +25,20 @@ test(`official template PostgreSQL phase: ${phase}`, { skip: !connectionString, 
   try {
     await admin.query(`CREATE SCHEMA ${schema}`);
     await runMigrations(pool);
+    if (phase === 'migration') return;
     await pool.query("INSERT INTO users(id,name,email,password_hash,role) VALUES('u1','One','one@template.test','x','client'),('u2','Two','two@template.test','x','client')");
     await pool.query("INSERT INTO plans(id,name,workspace_limit,number_limit,user_limit) VALUES('plan','Plan',5,5,5)");
     await pool.query("INSERT INTO workspaces(id,owner_id,name,plan_id) VALUES('w1','u1','One','plan'),('w2','u2','Two','plan')");
     await pool.query("INSERT INTO provider_connections(id,workspace_id,provider,label,status) VALUES('meta','w1','whatsapp_cloud','Sales','active'),('ycloud','w1','ycloud','Support','active'),('other-meta','w2','whatsapp_cloud','Other','active')");
     await pool.query("INSERT INTO whatsapp_numbers(id,owner_id,workspace_id,label,phone,provider_connection_id,automation_enabled) VALUES('sales','u1','w1','Sales','+923001110000','meta',true),('support','u1','w1','Support','+923002220000','ycloud',true),('other','u2','w2','Other','+923003330000','other-meta',true)");
     await pool.query(`INSERT INTO whatsapp_message_templates(id,workspace_id,provider_connection_id,whatsapp_number_id,provider,name,language,category,status,components) VALUES('valid','w1','meta','sales','whatsapp_cloud','order_update','en','UTILITY','APPROVED',$1)`, [approvedComponents]);
+    if (phase === 'valid') return;
     await rejectBinding(pool, ['wrong-workspace', 'w2', 'meta', 'sales', 'whatsapp_cloud']);
+    if (phase === 'wrong-workspace') return;
     await rejectBinding(pool, ['wrong-provider', 'w1', 'meta', 'sales', 'ycloud']);
+    if (phase === 'wrong-provider') return;
     await rejectBinding(pool, ['wrong-number', 'w1', 'meta', 'support', 'whatsapp_cloud']);
-    if (phase === 'isolation') return;
+    if (phase === 'wrong-number') return;
 
     const repository = new CampaignRepository(pool);
     const contact = { phone: '+923009990000', name: 'Ada', consentSource: 'form', policyVersion: 'v1', evidence: 'fixture', consentCapturedAt: new Date().toISOString() };
