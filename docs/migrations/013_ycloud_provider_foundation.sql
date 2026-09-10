@@ -5,7 +5,7 @@ CREATE TABLE ycloud_connection_assets (
   provider_connection_id TEXT PRIMARY KEY REFERENCES provider_connections(id) ON DELETE CASCADE,
   workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   whatsapp_number_id TEXT NOT NULL UNIQUE REFERENCES whatsapp_numbers(id) ON DELETE CASCADE,
-  business_phone_e164 TEXT NOT NULL CHECK (business_phone_e164 ~ '^\\+[1-9][0-9]{7,14}$'),
+  business_phone_e164 TEXT NOT NULL CHECK (business_phone_e164 ~ '^[+][1-9][0-9]{7,14}$'),
   waba_id TEXT,
   channel_id TEXT,
   health_status TEXT NOT NULL DEFAULT 'unknown' CHECK (health_status IN ('unknown','healthy','degraded','disabled')),

@@ -5,7 +5,6 @@ on:
     branches: [main]
 permissions:
   contents: read
-  pull-requests: write
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -50,16 +49,4 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - id: postgres-tests
-        shell: bash
-        run: |
-          set -o pipefail
-          node --test --test-force-exit --test-concurrency=1 test/postgres-integration.test.js test/canonical-send-postgres.test.js test/meta-signup-postgres.test.js test/legacy-delta-postgres.test.js test/meta-signup-routes-postgres.test.js test/meta-signup-runtime-postgres.test.js test/meta-webhook-postgres.test.js test/ycloud-webhook-postgres.test.js 2>&1 | tee /tmp/postgres-test.log
-      - name: Report sanitized failure
-        if: failure() && github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          { echo 'Temporary PostgreSQL CI diagnostic:'; echo '```text'; tail -n 80 /tmp/postgres-test.log; echo '```'; } > /tmp/ci-comment.md
-          gh pr comment "$PR_NUMBER" --body-file /tmp/ci-comment.md
+      - run: node --test --test-force-exit --test-concurrency=1 test/postgres-integration.test.js test/canonical-send-postgres.test.js test/meta-signup-postgres.test.js test/legacy-delta-postgres.test.js test/meta-signup-routes-postgres.test.js test/meta-signup-runtime-postgres.test.js test/meta-webhook-postgres.test.js test/ycloud-webhook-postgres.test.js
