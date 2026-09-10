@@ -1,8 +1,16 @@
+ALTER TABLE provider_connections
+  ADD CONSTRAINT uq_provider_connections_exact_binding
+  UNIQUE (id, workspace_id, provider);
+
+ALTER TABLE whatsapp_numbers
+  ADD CONSTRAINT uq_whatsapp_numbers_exact_binding
+  UNIQUE (id, workspace_id, provider_connection_id);
+
 CREATE TABLE whatsapp_message_templates (
   id TEXT PRIMARY KEY,
   workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-  provider_connection_id TEXT NOT NULL REFERENCES provider_connections(id) ON DELETE CASCADE,
-  whatsapp_number_id TEXT NOT NULL REFERENCES whatsapp_numbers(id) ON DELETE CASCADE,
+  provider_connection_id TEXT NOT NULL,
+  whatsapp_number_id TEXT NOT NULL,
   provider TEXT NOT NULL CHECK (provider IN ('whatsapp_cloud','ycloud')),
   official_template_id TEXT,
   waba_id TEXT,
@@ -15,32 +23,16 @@ CREATE TABLE whatsapp_message_templates (
   last_synced_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT fk_template_provider_binding
+    FOREIGN KEY (provider_connection_id, workspace_id, provider)
+    REFERENCES provider_connections(id, workspace_id, provider)
+    ON DELETE CASCADE,
+  CONSTRAINT fk_template_number_binding
+    FOREIGN KEY (whatsapp_number_id, workspace_id, provider_connection_id)
+    REFERENCES whatsapp_numbers(id, workspace_id, provider_connection_id)
+    ON DELETE CASCADE,
   UNIQUE(provider_connection_id,whatsapp_number_id,name,language)
 );
-
-CREATE FUNCTION enforce_official_template_binding() RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM provider_connections p
-    JOIN whatsapp_numbers n
-      ON n.provider_connection_id = p.id
-     AND n.workspace_id = p.workspace_id
-    WHERE p.id = NEW.provider_connection_id
-      AND p.workspace_id = NEW.workspace_id
-      AND p.provider = NEW.provider
-      AND p.provider IN ('whatsapp_cloud','ycloud')
-      AND n.id = NEW.whatsapp_number_id
-      AND n.workspace_id = NEW.workspace_id
-  ) THEN
-    RAISE EXCEPTION 'Invalid official template workspace, provider connection, provider and number binding';
-  END IF;
-  RETURN NEW;
-END $$;
-
-CREATE TRIGGER trg_official_template_binding
-BEFORE INSERT OR UPDATE ON whatsapp_message_templates
-FOR EACH ROW EXECUTE FUNCTION enforce_official_template_binding();
 
 CREATE INDEX idx_whatsapp_templates_workspace ON whatsapp_message_templates(workspace_id,provider,status,name);
 CREATE INDEX idx_whatsapp_templates_exact ON whatsapp_message_templates(workspace_id,provider_connection_id,whatsapp_number_id,status);
