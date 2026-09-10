@@ -51,9 +51,13 @@ jobs:
       - run: npm ci
       - run: node --test --test-force-exit --test-concurrency=1 test/postgres-integration.test.js test/canonical-send-postgres.test.js test/meta-signup-postgres.test.js test/legacy-delta-postgres.test.js test/meta-signup-routes-postgres.test.js test/meta-signup-runtime-postgres.test.js test/meta-webhook-postgres.test.js test/ycloud-webhook-postgres.test.js test/message-policy-postgres.test.js
   postgres-templates:
-    name: PostgreSQL official templates
+    name: PostgreSQL official templates (${{ matrix.phase }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        phase: [isolation, campaign, idempotency]
     services:
       postgres:
         image: postgres:16-alpine
@@ -70,6 +74,7 @@ jobs:
           --health-retries 10
     env:
       NODE_ENV: test
+      TEMPLATE_TEST_PHASE: ${{ matrix.phase }}
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/wa_client_hub_test
     steps:
       - uses: actions/checkout@v4

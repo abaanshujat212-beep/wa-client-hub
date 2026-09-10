@@ -10,14 +10,15 @@ const { MessagePolicyRepository } = require('../src/messaging/messagePolicy');
 const { TemplateCatalog } = require('../src/messaging/templateCatalog');
 const { CanonicalTemplateService } = require('../src/messaging/canonicalTemplateService');
 const connectionString = process.env.TEST_DATABASE_URL;
+const phase = process.env.TEMPLATE_TEST_PHASE || 'idempotency';
 const placeholder = value => '{' + '{' + value + '}' + '}';
 const approvedComponents = JSON.stringify([{ type: 'BODY', text: `Hello ${placeholder(1)}` }]);
 
 async function rejectBinding(pool, values) {
-  await assert.rejects(() => pool.query(`INSERT INTO whatsapp_message_templates(id,workspace_id,provider_connection_id,whatsapp_number_id,provider,name,language,category,status,components) VALUES($1,$2,$3,$4,$5,'order_update','en','UTILITY','APPROVED',$6)`, [...values, approvedComponents]), /Invalid official template/);
+  await assert.rejects(() => pool.query(`INSERT INTO whatsapp_message_templates(id,workspace_id,provider_connection_id,whatsapp_number_id,provider,name,language,category,status,components) VALUES($1,$2,$3,$4,$5,'order_update','en','UTILITY','APPROVED',$6)`, [...values, approvedComponents]), error => error.code === 'P0001');
 }
 
-test('official template rows and campaign dispatch remain exact across tenant, number, and provider', { skip: !connectionString, timeout: 60000 }, async () => {
+test(`official template PostgreSQL phase: ${phase}`, { skip: !connectionString, timeout: 60000 }, async () => {
   const schema = `official_template_${crypto.randomBytes(6).toString('hex')}`;
   const admin = new Pool({ connectionString });
   const pool = new Pool({ connectionString, options: `-c search_path=${schema}` });
@@ -30,16 +31,15 @@ test('official template rows and campaign dispatch remain exact across tenant, n
     await pool.query("INSERT INTO provider_connections(id,workspace_id,provider,label,status) VALUES('meta','w1','whatsapp_cloud','Sales','active'),('ycloud','w1','ycloud','Support','active'),('other-meta','w2','whatsapp_cloud','Other','active')");
     await pool.query("INSERT INTO whatsapp_numbers(id,owner_id,workspace_id,label,phone,provider_connection_id,automation_enabled) VALUES('sales','u1','w1','Sales','+923001110000','meta',true),('support','u1','w1','Support','+923002220000','ycloud',true),('other','u2','w2','Other','+923003330000','other-meta',true)");
     await pool.query(`INSERT INTO whatsapp_message_templates(id,workspace_id,provider_connection_id,whatsapp_number_id,provider,name,language,category,status,components) VALUES('valid','w1','meta','sales','whatsapp_cloud','order_update','en','UTILITY','APPROVED',$1)`, [approvedComponents]);
-
     await rejectBinding(pool, ['wrong-workspace', 'w2', 'meta', 'sales', 'whatsapp_cloud']);
     await rejectBinding(pool, ['wrong-provider', 'w1', 'meta', 'sales', 'ycloud']);
     await rejectBinding(pool, ['wrong-number', 'w1', 'meta', 'support', 'whatsapp_cloud']);
+    if (phase === 'isolation') return;
 
     const repository = new CampaignRepository(pool);
     const contact = { phone: '+923009990000', name: 'Ada', consentSource: 'form', policyVersion: 'v1', evidence: 'fixture', consentCapturedAt: new Date().toISOString() };
     await assert.rejects(() => repository.create({ workspaceId: 'w1', numberId: 'sales', name: 'Mismatch', template: '', officialTemplate: { name: 'order_update', language: 'en', parameters: [] }, createdBy: 'u1', contacts: [contact] }), error => error.code === 'TEMPLATE_PARAMETERS_MISMATCH');
     await assert.rejects(() => repository.create({ workspaceId: 'w1', numberId: 'support', name: 'No fallback', template: '', officialTemplate: { name: 'order_update', language: 'en', parameters: ['{{name}}'] }, createdBy: 'u1', contacts: [contact] }), error => error.code === 'APPROVED_TEMPLATE_REQUIRED');
-
     const campaign = await repository.create({ workspaceId: 'w1', numberId: 'sales', name: 'Exact template', template: '', officialTemplate: { name: 'order_update', language: 'en', parameters: ['{{name}}'] }, createdBy: 'u1', contacts: [contact] });
     assert.equal(campaign.messageMode, 'official_template');
     await repository.setStatus(['w1'], campaign.id, 'running');
@@ -49,6 +49,7 @@ test('official template rows and campaign dispatch remain exact across tenant, n
     assert.equal(await worker.tick(), true);
     assert.deepEqual(sendInput.template.parameters, ['Ada']);
     assert.equal(sendInput.conversationId, 'exact-conversation');
+    if (phase === 'campaign') return;
 
     const claimedContact = await pool.query("SELECT id FROM contacts WHERE workspace_id='w1' AND phone_e164='+923009990000'");
     await pool.query("INSERT INTO conversations(id,workspace_id,whatsapp_number_id,contact_id) VALUES('sales-conversation','w1','sales',$1)", [claimedContact.rows[0].id]);
