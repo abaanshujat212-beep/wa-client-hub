@@ -41,13 +41,13 @@ class MetaTemplateSyncRepository {
     this.vault = vault;
   }
 
-  async target({ actorId, workspaceId, connectionId }, executor = this.pool, { lock = false } = {}) {
+  async target({ actorId, workspaceId, connectionId }, executor = this.pool) {
     const result = await executor.query(`SELECT p.id,p.workspace_id,p.encrypted_credentials,p.encryption_key_id,a.waba_id,n.id AS whatsapp_number_id
       FROM users u JOIN provider_connections p ON p.workspace_id=$2
       JOIN meta_connection_assets a ON a.provider_connection_id=p.id AND a.workspace_id=p.workspace_id
       JOIN whatsapp_numbers n ON n.provider_connection_id=p.id AND n.workspace_id=p.workspace_id
       WHERE u.id=$1 AND p.id=$3 AND p.provider='whatsapp_cloud' AND p.status='active'
-      AND a.disconnected_at IS NULL AND ${managerPredicate}${lock ? '\n      FOR UPDATE OF p,a,n' : ''}`, [actorId, workspaceId, connectionId]);
+      AND a.disconnected_at IS NULL AND ${managerPredicate}`, [actorId, workspaceId, connectionId]);
     if (!result.rowCount) throw new MetaTemplateSyncError('META_CONNECTION_NOT_FOUND');
     if (result.rowCount !== 1) throw new MetaTemplateSyncError('META_TEMPLATE_BINDING_INVALID');
     const row = result.rows[0];
@@ -56,6 +56,19 @@ class MetaTemplateSyncRepository {
     const accessToken = String(secret.accessToken || '').trim();
     if (!accessToken) throw new MetaTemplateSyncError('META_CREDENTIALS_UNAVAILABLE');
     return { workspaceId: row.workspace_id, connectionId: row.id, numberId: row.whatsapp_number_id, wabaId: row.waba_id, accessToken };
+  }
+
+  async lockExpectedTarget(client, expected) {
+    if (!expected) return;
+    const connection = await client.query(`SELECT id FROM provider_connections
+      WHERE id=$1 AND workspace_id=$2 AND provider='whatsapp_cloud' FOR UPDATE`, [expected.connectionId, expected.workspaceId]);
+    const asset = await client.query(`SELECT provider_connection_id FROM meta_connection_assets
+      WHERE provider_connection_id=$1 AND workspace_id=$2 AND waba_id=$3 AND disconnected_at IS NULL FOR UPDATE`, [expected.connectionId, expected.workspaceId, expected.wabaId]);
+    const number = await client.query(`SELECT id FROM whatsapp_numbers
+      WHERE id=$1 AND workspace_id=$2 AND provider_connection_id=$3 FOR UPDATE`, [expected.numberId, expected.workspaceId, expected.connectionId]);
+    if (connection.rowCount !== 1 || asset.rowCount !== 1 || number.rowCount !== 1) {
+      throw new MetaTemplateSyncError('META_TEMPLATE_BINDING_CHANGED');
+    }
   }
 
   async list(scope) {
@@ -71,7 +84,8 @@ class MetaTemplateSyncRepository {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      const target = await this.target(scope, client, { lock: true });
+      await this.lockExpectedTarget(client, expectedTarget);
+      const target = await this.target(scope, client);
       if (!sameTarget(target, expectedTarget)) throw new MetaTemplateSyncError('META_TEMPLATE_BINDING_CHANGED');
       const keys = [];
       for (const template of templates) {
