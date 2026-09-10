@@ -1,2 +1,43 @@
-const test=require('node:test');const assert=require('node:assert/strict');const crypto=require('node:crypto');const{Pool}=require('pg');const{runMigrations}=require('../src/db/migrate');const{MessagePolicyRepository}=require('../src/messaging/messagePolicy');const cs=process.env.TEST_DATABASE_URL;
-test('official message policy isolates sessions by number and suppressions by workspace',{skip:!cs,timeout:60000},async()=>{const schema=`message_policy_${crypto.randomBytes(6).toString('hex')}`,admin=new Pool({connectionString:cs}),pool=new Pool({connectionString:cs,options:`-c search_path=${schema}`});try{await admin.query(`CREATE SCHEMA ${schema}`);await runMigrations(pool);await pool.query("INSERT INTO users(id,name,email,password_hash,role) VALUES('u1','One','one@policy.test','x','client'),('u2','Two','two@policy.test','x','client')");await pool.query("INSERT INTO plans(id,name,workspace_limit,number_limit,user_limit) VALUES('plan','Plan',5,5,5)");await pool.query("INSERT INTO workspaces(id,owner_id,name,plan_id) VALUES('w1','u1','One','plan'),('w2','u2','Two','plan')");await pool.query("INSERT INTO provider_connections(id,workspace_id,provider,label,status) VALUES('meta','w1','whatsapp_cloud','Sales Meta','active'),('yc','w1','ycloud','Support YCloud','active'),('yc2','w2','ycloud','Other YCloud','active')");await pool.query("INSERT INTO whatsapp_numbers(id,owner_id,workspace_id,label,phone,provider_connection_id,automation_enabled) VALUES('sales','u1','w1','Sales','+923001110000','meta',true),('support','u1','w1','Support','+923002220000','yc',true),('other','u2','w2','Other','+923003330000','yc2',true)");await pool.query("INSERT INTO contacts(id,workspace_id,phone_e164) VALUES('c1','w1','+923009990000'),('c2','w2','+923009990000')");await pool.query("INSERT INTO conversations(id,workspace_id,whatsapp_number_id,contact_id) VALUES('sales-thread','w1','sales','c1'),('support-thread','w1','support','c1'),('other-thread','w2','other','c2')");await pool.query("INSERT INTO consent_records(id,workspace_id,contact_id,purpose,status,source,policy_version,captured_at) VALUES('consent1','w1','c1','support','granted','form','v1',now()),('consent2','w2','c2','support','granted','form','v1',now())");await pool.query("INSERT INTO messages(id,workspace_id,conversation_id,direction,origin,type,body,status,occurred_at) VALUES('sales-in','w1','sales-thread','inbound','contact','text','Hi','received',now()-interval '1 hour'),('support-old','w1','support-thread','inbound','contact','text','Old','received',now()-interval '25 hours'),('other-in','w2','other-thread','inbound','contact','text','Hi','received',now()-interval '1 hour')");const policy=new MessagePolicyRepository(pool),sales=await policy.evaluateText({dispatch:{workspaceId:'w1',conversationId:'sales-thread'}}),support=await policy.evaluateText({dispatch:{workspaceId:'w1',conversationId:'support-thread'}}),other=await policy.evaluateText({dispatch:{workspaceId:'w2',conversationId:'other-thread'}});assert.deepEqual(sales,{consented:true,suppressed:false,sessionOpen:true});assert.deepEqual(support,{consented:true,suppressed:false,sessionOpen:false});assert.deepEqual(other,{consented:true,suppressed:false,sessionOpen:true});await pool.query("INSERT INTO suppressions(id,workspace_id,contact_id,phone_e164,scope,reason) VALUES('s1','w1','c1','+923009990000','workspace','opt_out')");assert.equal((await policy.evaluateText({dispatch:{workspaceId:'w1',conversationId:'sales-thread'}})).suppressed,true);assert.equal((await policy.evaluateText({dispatch:{workspaceId:'w2',conversationId:'other-thread'}})).suppressed,false);}finally{await pool.end();await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await admin.end();}});
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
+const { Pool } = require('pg');
+const { runMigrations } = require('../src/db/migrate');
+const { MessagePolicyRepository } = require('../src/messaging/messagePolicy');
+const connectionString = process.env.TEST_DATABASE_URL;
+
+test('official message policy uses latest consent and isolates sessions by number and workspace', { skip: !connectionString, timeout: 60000 }, async () => {
+  const schema = `message_policy_${crypto.randomBytes(6).toString('hex')}`;
+  const admin = new Pool({ connectionString });
+  const pool = new Pool({ connectionString, options: `-c search_path=${schema}` });
+  try {
+    await admin.query(`CREATE SCHEMA ${schema}`);
+    await runMigrations(pool);
+    await pool.query("INSERT INTO users(id,name,email,password_hash,role) VALUES('u1','One','one@policy.test','x','client'),('u2','Two','two@policy.test','x','client')");
+    await pool.query("INSERT INTO plans(id,name,workspace_limit,number_limit,user_limit) VALUES('plan','Plan',5,5,5)");
+    await pool.query("INSERT INTO workspaces(id,owner_id,name,plan_id) VALUES('w1','u1','One','plan'),('w2','u2','Two','plan')");
+    await pool.query("INSERT INTO provider_connections(id,workspace_id,provider,label,status) VALUES('meta','w1','whatsapp_cloud','Sales Meta','active'),('yc','w1','ycloud','Support YCloud','active'),('yc2','w2','ycloud','Other YCloud','active')");
+    await pool.query("INSERT INTO whatsapp_numbers(id,owner_id,workspace_id,label,phone,provider_connection_id,automation_enabled) VALUES('sales','u1','w1','Sales','+923001110000','meta',true),('support','u1','w1','Support','+923002220000','yc',true),('other','u2','w2','Other','+923003330000','yc2',true)");
+    await pool.query("INSERT INTO contacts(id,workspace_id,phone_e164) VALUES('c1','w1','+923009990000'),('c2','w2','+923009990000')");
+    await pool.query("INSERT INTO conversations(id,workspace_id,whatsapp_number_id,contact_id) VALUES('sales-thread','w1','sales','c1'),('support-thread','w1','support','c1'),('other-thread','w2','other','c2')");
+    await pool.query("INSERT INTO consent_records(id,workspace_id,contact_id,purpose,status,source,policy_version,captured_at) VALUES('consent1','w1','c1','support','granted','form','v1',now()-interval '2 hours'),('consent2','w2','c2','support','granted','form','v1',now())");
+    await pool.query("INSERT INTO messages(id,workspace_id,conversation_id,direction,origin,type,body,status,occurred_at) VALUES('sales-in','w1','sales-thread','inbound','contact','text','Hi','received',now()-interval '1 hour'),('support-old','w1','support-thread','inbound','contact','text','Old','received',now()-interval '25 hours'),('other-in','w2','other-thread','inbound','contact','text','Hi','received',now()-interval '1 hour')");
+    const policy = new MessagePolicyRepository(pool);
+    assert.deepEqual(await policy.evaluateText({ dispatch: { workspaceId: 'w1', conversationId: 'sales-thread' } }), { consented: true, suppressed: false, sessionOpen: true });
+    assert.deepEqual(await policy.evaluateText({ dispatch: { workspaceId: 'w1', conversationId: 'support-thread' } }), { consented: true, suppressed: false, sessionOpen: false });
+    assert.deepEqual(await policy.evaluateText({ dispatch: { workspaceId: 'w2', conversationId: 'other-thread' } }), { consented: true, suppressed: false, sessionOpen: true });
+
+    await pool.query("INSERT INTO consent_records(id,workspace_id,contact_id,purpose,status,source,policy_version,captured_at) VALUES('revoked','w1','c1','support','revoked','form','v1',now()-interval '1 hour')");
+    assert.equal((await policy.evaluateText({ dispatch: { workspaceId: 'w1', conversationId: 'sales-thread' } })).consented, false);
+    await pool.query("INSERT INTO consent_records(id,workspace_id,contact_id,purpose,status,source,policy_version,captured_at) VALUES('latest-grant','w1','c1','support','granted','form','v2',now())");
+    assert.equal((await policy.evaluateText({ dispatch: { workspaceId: 'w1', conversationId: 'sales-thread' } })).consented, true);
+
+    await pool.query("INSERT INTO suppressions(id,workspace_id,contact_id,phone_e164,scope,reason) VALUES('s1','w1','c1','+923009990000','workspace','opt_out')");
+    assert.equal((await policy.evaluateText({ dispatch: { workspaceId: 'w1', conversationId: 'sales-thread' } })).suppressed, true);
+    assert.equal((await policy.evaluateText({ dispatch: { workspaceId: 'w2', conversationId: 'other-thread' } })).suppressed, false);
+  } finally {
+    await pool.end();
+    await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+    await admin.end();
+  }
+});
