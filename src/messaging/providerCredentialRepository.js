@@ -1,21 +1,7 @@
-class ProviderCredentialError extends Error {
-  constructor(message, code) { super(message); this.name = 'ProviderCredentialError'; this.code = code; }
-}
+class ProviderCredentialError extends Error { constructor(message, code) { super(message); this.name = 'ProviderCredentialError'; this.code = code; } }
 class ProviderCredentialRepository {
   constructor(pool, vault) { if (!pool) throw new TypeError('pool is required'); if (!vault) throw new TypeError('vault is required'); this.pool = pool; this.vault = vault; }
-  async resolveMeta({ workspaceId, providerConnectionId }) {
-    const result = await this.pool.query(`SELECT p.id,p.workspace_id,p.status,p.encrypted_credentials,p.encryption_key_id,
-      a.phone_number_id,a.waba_id FROM provider_connections p
-      LEFT JOIN meta_connection_assets a ON a.provider_connection_id=p.id AND a.workspace_id=p.workspace_id
-      WHERE p.id=$1 AND p.workspace_id=$2 AND p.provider='whatsapp_cloud' AND p.status='active'`, [providerConnectionId, workspaceId]);
-    const row = result.rows[0]; if (!row) return null;
-    if (!row.encrypted_credentials) throw new ProviderCredentialError('Meta credentials are unavailable', 'META_CREDENTIALS_UNAVAILABLE');
-    const decrypted = this.vault.decrypt(row.encrypted_credentials, row.id, row.encryption_key_id);
-    const accessToken = String(decrypted.accessToken || '').trim();
-    const phoneNumberId = String(row.phone_number_id || decrypted.phoneNumberId || '').trim();
-    const businessAccountId = String(row.waba_id || decrypted.businessAccountId || '').trim() || null;
-    if (!accessToken || !/^\d+$/.test(phoneNumberId)) throw new ProviderCredentialError('Meta credentials are incomplete', 'META_CREDENTIALS_INVALID');
-    return { accessToken, phoneNumberId, businessAccountId };
-  }
+  async resolveMeta({ workspaceId, providerConnectionId }) { const result = await this.pool.query(`SELECT p.id,p.workspace_id,p.status,p.encrypted_credentials,p.encryption_key_id,a.phone_number_id,a.waba_id FROM provider_connections p LEFT JOIN meta_connection_assets a ON a.provider_connection_id=p.id AND a.workspace_id=p.workspace_id WHERE p.id=$1 AND p.workspace_id=$2 AND p.provider='whatsapp_cloud' AND p.status='active'`, [providerConnectionId, workspaceId]); const row = result.rows[0]; if (!row) return null; if (!row.encrypted_credentials) throw new ProviderCredentialError('Meta credentials are unavailable', 'META_CREDENTIALS_UNAVAILABLE'); const decrypted = this.vault.decrypt(row.encrypted_credentials, row.id, row.encryption_key_id); const accessToken = String(decrypted.accessToken || '').trim(); const phoneNumberId = String(row.phone_number_id || decrypted.phoneNumberId || '').trim(); const businessAccountId = String(row.waba_id || decrypted.businessAccountId || '').trim() || null; if (!accessToken || !/^\d+$/.test(phoneNumberId)) throw new ProviderCredentialError('Meta credentials are incomplete', 'META_CREDENTIALS_INVALID'); return { accessToken, phoneNumberId, businessAccountId }; }
+  async resolveYCloud({workspaceId,providerConnectionId,numberId}){const result=await this.pool.query(`SELECT p.id,p.encrypted_credentials,p.encryption_key_id,a.whatsapp_number_id,a.business_phone_e164,a.waba_id,a.channel_id FROM provider_connections p JOIN ycloud_connection_assets a ON a.provider_connection_id=p.id AND a.workspace_id=p.workspace_id JOIN whatsapp_numbers n ON n.id=a.whatsapp_number_id AND n.workspace_id=p.workspace_id AND n.provider_connection_id=p.id WHERE p.id=$1 AND p.workspace_id=$2 AND p.provider='ycloud' AND p.status='active' AND a.whatsapp_number_id=$3`,[providerConnectionId,workspaceId,numberId]);const row=result.rows[0];if(!row)return null;if(!row.encrypted_credentials)throw new ProviderCredentialError('YCloud credentials are unavailable','YCLOUD_CREDENTIALS_UNAVAILABLE');const decrypted=this.vault.decrypt(row.encrypted_credentials,row.id,row.encryption_key_id),apiKey=String(decrypted.apiKey||'').trim();if(apiKey.length<16)throw new ProviderCredentialError('YCloud credentials are incomplete','YCLOUD_CREDENTIALS_INVALID');return{apiKey,webhookSecret:String(decrypted.webhookSecret||''),numberId:row.whatsapp_number_id,businessPhone:row.business_phone_e164,wabaId:row.waba_id||null,channelId:row.channel_id||null};}
 }
 module.exports = { ProviderCredentialRepository, ProviderCredentialError };
