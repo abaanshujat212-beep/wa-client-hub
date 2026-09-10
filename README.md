@@ -30,16 +30,12 @@ Client / Organization
 
 ### Planned package limits
 
-Initial suggested plans:
-
 | Plan | Workspaces | WhatsApp numbers | Users | Notes |
 | --- | ---: | ---: | ---: | --- |
 | Starter | 1 | 1 | 1 | Single owner test package |
 | Team | 1 | 3 | 3 | Small team/client package |
 | Business | 3 | 10 | 10 | Multi-brand/client operations |
 | Dedicated | Custom | Custom | Custom | Dedicated Windows VM/VPS and custom limits |
-
-Plan enforcement should happen on the server side. The dashboard should display usage such as `2/3 WhatsApp numbers` and `1/3 users`.
 
 ## What this version does
 
@@ -53,37 +49,6 @@ Plan enforcement should happen on the server side. The dashboard should display 
 - Expose the dashboard temporarily through Cloudflare Tunnel
 - Maintain an audit log for core actions
 
-## Next build priorities
-
-The current MVP uses a simple account model. The next implementation phase should add the workspace/member/plan model.
-
-1. **Workspace model**
-   - Add a real workspace entity.
-   - Move WhatsApp accounts/numbers under `workspaceId`.
-   - Migrate current accounts into default workspaces.
-
-2. **Multiple WhatsApp numbers per workspace**
-   - Allow one workspace to contain many WhatsApp numbers.
-   - Keep one isolated browser profile per number.
-   - Enforce plan limits before creating a new number.
-
-3. **Multiple users per workspace**
-   - Add workspace members.
-   - Add roles such as owner, admin, agent, and viewer.
-   - Allow one user to belong to multiple workspaces if needed.
-   - Enforce server-side role checks.
-
-4. **Plan limits**
-   - Store `planId` and optional custom limits.
-   - Limit workspace count, WhatsApp number count, and user count.
-   - Show usage counters in the dashboard.
-
-5. **Dashboard update**
-   - Add workspace detail screen.
-   - Add tabs/sections for WhatsApp numbers and members.
-   - Add member invite/add flow.
-   - Add limit reached states.
-
 ## Important calling limitation
 
 Cloudflare Tunnel exposes the **dashboard**, not the Chrome window running on the Windows PC. For a remote client to message or call, they must also access the Windows desktop through Remote Desktop with microphone/audio redirection enabled.
@@ -94,14 +59,7 @@ Windows 11 supports one reliable interactive remote desktop session at a time. T
 
 ### 1. Install prerequisites
 
-Install:
-
-- Node.js 22 LTS
-- Google Chrome or Microsoft Edge
-- PM2
-- Cloudflared
-
-Cloudflared can be installed from PowerShell:
+Install Node.js 22 LTS, Google Chrome or Microsoft Edge, PM2, and Cloudflared.
 
 ```powershell
 winget install --id Cloudflare.cloudflared
@@ -109,22 +67,12 @@ winget install --id Cloudflare.cloudflared
 
 ### 2. Prepare the project
 
-Open PowerShell inside this project directory and run:
-
 ```powershell
 Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\setup-windows.ps1
 ```
 
-Open `.env` and change at least:
-
-```env
-SESSION_SECRET=put-a-random-secret-longer-than-32-characters-here
-ADMIN_EMAIL=your@email.com
-ADMIN_PASSWORD=Use-A-Strong-Password-Here
-```
-
-The first startup creates the admin account. Changing the `.env` admin password later does not overwrite an existing admin record.
+Open `.env` and change at least `SESSION_SECRET`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD`.
 
 ### 3. Start through PM2
 
@@ -132,9 +80,7 @@ The first startup creates the admin account. Changing the `.env` admin password 
 .\scripts\start-pm2.ps1
 ```
 
-Open [http://localhost:3131](http://localhost:3131), sign in as admin, create a client, then create a WhatsApp workspace/account. Clicking **Link account** opens an isolated WhatsApp Web window. Scan the QR code from the phone.
-
-Useful PM2 commands:
+Open [http://localhost:3131](http://localhost:3131). Clicking **Link account** opens an isolated WhatsApp Web window on Windows.
 
 ```powershell
 pm2 status
@@ -145,68 +91,230 @@ pm2 stop wa-client-hub
 
 ### 4. Start a temporary Cloudflare Tunnel
 
-Open a second PowerShell window:
-
 ```powershell
 .\scripts\start-tunnel.ps1
 ```
 
-Cloudflared prints a temporary `https://...trycloudflare.com` URL. Share it only for a short test. For production, configure a named tunnel and Cloudflare Access authentication before the app.
+## macOS Local Development
 
-## Test voice calls remotely
+The Node.js/Express backend, JSON storage, PostgreSQL client, Redis client, migrations, and npm scripts use portable Node APIs and run on macOS. Docker Desktop can run the control plane on Intel and Apple Silicon Macs. The legacy local WhatsApp Web browser launcher is intentionally Windows-only; this does not prevent backend/API development on macOS.
 
-1. Use another Windows computer for the remote test.
-2. Copy `scripts/remote-desktop-template.rdp` and replace `YOUR-WINDOWS-HOSTNAME-OR-IP`.
-3. Confirm the Windows host allows Remote Desktop and the selected Windows edition supports hosting RDP.
-4. Open the `.rdp` file. It already enables remote audio playback and microphone capture.
-5. Open the client’s WhatsApp workspace from the dashboard.
-6. In Chrome/Edge, allow microphone, camera, and notifications for `web.whatsapp.com`.
-7. Place a test call.
+### Prerequisites
 
-If the Windows 11 PC is on a private office/home network, do not expose port 3389 directly to the public internet. Use a VPN, Cloudflare Access/RDP setup, or a properly secured Windows VPS.
+Install:
 
-## Production model for selling
+- Git
+- Node.js 22 LTS (Node 20 or newer is accepted by `package.json`)
+- Docker Desktop with Docker Compose v2
+- Xcode Command Line Tools (`xcode-select --install`) if Git or native build tooling is missing
+- Optional: Homebrew (`brew`) and Google Chrome for ordinary browsing; the app does not launch Chrome on macOS
 
-```text
-Central dashboard
-  -> Client authentication, workspace memberships, and plans
-  -> Plan limit enforcement
-  -> VM assignment
-  -> One Windows VM/VPS per simultaneous client/session
-       -> Isolated Chrome profile(s)
-       -> WhatsApp Web
-       -> RDP audio/microphone
+Confirm the tools:
+
+```sh
+git --version
+node --version
+npm --version
+docker version
+docker compose version
+uname -m
 ```
 
-Recommended next production phases:
+`uname -m` prints `arm64` on Apple Silicon and `x86_64` on Intel Macs.
 
-1. PostgreSQL instead of the local JSON store
-2. Workspace/member/plan data model
-3. One Windows VM per client or concurrency slot
-4. Named Cloudflare Tunnel plus Access policies
-5. Subscription billing and plan limits
-6. Encrypted secret storage, backups, audit reporting, and monitoring
-7. Customer terms covering WhatsApp rules and acceptable use
+### Clone and install
 
-## Security notes
+```sh
+git clone https://github.com/abaanshujat212-beep/wa-client-hub.git
+cd wa-client-hub
+npm ci
+```
 
-- Never commit `.env`, `data`, or `runtime` directories.
-- Never share the Windows administrator account with clients.
-- Do not expose raw RDP port 3389 publicly.
-- Use a separate Windows account/VM for every production client.
-- Enforce workspace access and plan limits on the backend.
-- This project does not scrape chats or automate bulk messaging.
-- WhatsApp can change WhatsApp Web behavior, limits, and calling availability.
+`npm ci` uses the committed lock file and is preferred over `npm install` for a reproducible checkout.
 
-## Development
+### Create `.env` and local secrets
 
-```powershell
-npm install
+For the lightweight Node/JSON development path:
+
+```sh
+cp .env.example .env
+SESSION_SECRET="$(openssl rand -hex 32)"
+CONNECTOR_MASTER_KEY="$(openssl rand -base64 32)"
+sed -i '' "s|^SESSION_SECRET=.*|SESSION_SECRET=${SESSION_SECRET}|" .env
+sed -i '' "s|^CONNECTOR_MASTER_KEY=.*|CONNECTOR_MASTER_KEY=${CONNECTOR_MASTER_KEY}|" .env
+```
+
+Then edit `.env` and set a local admin email and strong password:
+
+```sh
+nano .env
+```
+
+Keep these local-development values:
+
+```env
+NODE_ENV=development
+STORE_DRIVER=json
+COOKIE_SECURE=false
+MOCK_BROWSER=1
+META_SIGNUP_ENABLED=false
+META_WEBHOOK_ENABLED=false
+YCLOUD_ENABLED=false
+YCLOUD_WEBHOOK_ENABLED=false
+```
+
+`MOCK_BROWSER=1` is for dashboard/API testing on macOS. It prevents the Windows-only **Link account** action from trying to launch a real browser profile. It does not create a WhatsApp session or enable calls.
+
+### Run the Node app
+
+```sh
 npm run dev
 ```
 
-Run tests:
+Or without file watching:
 
-```powershell
+```sh
+npm start
+```
+
+Open `http://127.0.0.1:3131`. Stop with `Control-C`.
+
+### Run Docker services
+
+Create a Docker environment and generate local-only secrets:
+
+```sh
+cp .env.docker.example .env.docker
+POSTGRES_PASSWORD="$(openssl rand -hex 24)"
+SESSION_SECRET="$(openssl rand -hex 32)"
+ADMIN_PASSWORD="$(openssl rand -base64 24 | tr -d '\n')"
+CONNECTOR_MASTER_KEY="$(openssl rand -base64 32)"
+OPENWA_API_KEY="$(openssl rand -hex 32)"
+OPENWA_WEBHOOK_SECRET="$(openssl rand -hex 32)"
+sed -i '' "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=${POSTGRES_PASSWORD}|" .env.docker
+sed -i '' "s|^SESSION_SECRET=.*|SESSION_SECRET=${SESSION_SECRET}|" .env.docker
+sed -i '' "s|^ADMIN_PASSWORD=.*|ADMIN_PASSWORD=${ADMIN_PASSWORD}|" .env.docker
+sed -i '' "s|^CONNECTOR_MASTER_KEY=.*|CONNECTOR_MASTER_KEY=${CONNECTOR_MASTER_KEY}|" .env.docker
+sed -i '' "s|^OPENWA_API_KEY=.*|OPENWA_API_KEY=${OPENWA_API_KEY}|" .env.docker
+sed -i '' "s|^OPENWA_WEBHOOK_SECRET=.*|OPENWA_WEBHOOK_SECRET=${OPENWA_WEBHOOK_SECRET}|" .env.docker
+```
+
+Validate and start the control plane (app, migration, PostgreSQL, and Redis; OpenWA is not started unless its profile is selected):
+
+```sh
+docker compose --env-file .env.docker config
+docker compose --env-file .env.docker up --build -d --wait
+curl -fsS http://127.0.0.1:3131/api/ready
+docker compose --env-file .env.docker ps
+```
+
+View logs and stop without deleting named volumes:
+
+```sh
+docker compose --env-file .env.docker logs -f app migrate postgres redis
+docker compose --env-file .env.docker down
+```
+
+Do not use `docker compose down --volumes` unless local data may be deleted.
+
+### Apple Silicon notes
+
+- The app image uses the official `node:22-bookworm-slim` base, and PostgreSQL 16 and Redis 7 images have normal Linux arm64 variants. The application dependencies are JavaScript-only in this repository, so the Node/control-plane path does not require Rosetta.
+- Docker Desktop must be running with enough memory for PostgreSQL, Redis, and the app. OpenWA additionally requests 1 GB shared memory.
+- Apache Guacamole is optional and is not needed for backend development. The `guacamole/` package is specifically a gateway to a Windows RDP host; it does not turn macOS into the WhatsApp Web/calling host.
+
+### Run OpenWA separately
+
+OpenWA is optional, unofficial, and disabled unless the `openwa` Compose profile is selected. It can cause account restrictions; use a dedicated test number only.
+
+Start it with loopback-only QR enrollment:
+
+```sh
+docker compose --env-file .env.docker --profile openwa \
+  -f compose.yml -f compose.openwa-local.yml \
+  up -d openwa
+docker compose --env-file .env.docker --profile openwa \
+  -f compose.yml -f compose.openwa-local.yml \
+  logs -f openwa
+```
+
+Open `http://127.0.0.1:8080` only for local enrollment. After linking, recreate without the port-publishing override:
+
+```sh
+docker compose --env-file .env.docker --profile openwa up -d openwa
+```
+
+#### OpenWA on Apple Silicon
+
+OpenWA upstream information is inconsistent: Docker Hub exposes an arm64 image variant, while the upstream OpenWA Docker documentation warns that Chromium may not work on ARM. The repository pins an image digest, so do not assume that a newly published `latest` manifest has the same architecture or behavior.
+
+Try the normal command first. If Docker reports an architecture/manifest error or Chromium exits on an `arm64` Mac, enable Docker Desktop's Rosetta/x86 emulation and use the explicit amd64 override:
+
+```sh
+docker compose --env-file .env.docker --profile openwa \
+  -f compose.yml -f compose.openwa-local.yml -f compose.openwa-macos-arm64.yml \
+  up -d openwa
+docker compose --env-file .env.docker --profile openwa \
+  -f compose.yml -f compose.openwa-local.yml -f compose.openwa-macos-arm64.yml \
+  logs -f openwa
+```
+
+The amd64 fallback may be slower and Chromium/QR persistence still requires a real-device smoke test. Do not mark OpenWA as Mac-compatible until QR enrollment, restart persistence, send, receive, and webhook delivery have been verified on the target Mac. Official Meta/YCloud providers do not depend on this browser container.
+
+### Run tests
+
+Run the normal test suite:
+
+```sh
+npm test
+```
+
+PostgreSQL-specific tests skip when `TEST_DATABASE_URL` is absent. To run them on macOS with an isolated Docker database:
+
+```sh
+docker run --rm -d --name wa-hub-test-postgres \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=wa_client_hub_test \
+  -p 127.0.0.1:55432:5432 \
+  postgres:16.10-bookworm
+until docker exec wa-hub-test-postgres pg_isready -U postgres -d wa_client_hub_test; do sleep 1; done
+TEST_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:55432/wa_client_hub_test npm test
+docker rm -f wa-hub-test-postgres
+```
+
+### Troubleshooting and known limitations
+
+- **`Link account` says Windows only:** expected when `MOCK_BROWSER=0`; set `MOCK_BROWSER=1` for UI/API development. Real local profile launch, browser voice/video calls, `taskkill`, RDP, and the `.rdp` template remain Windows-specific.
+- **Docker interpolation reports a missing variable:** regenerate `.env.docker` and confirm `POSTGRES_PASSWORD`, `SESSION_SECRET`, `ADMIN_PASSWORD`, and `CONNECTOR_MASTER_KEY` are non-empty.
+- **Port already in use:** set `PORT` for Node, `APP_PORT` for the Docker app, or `OPENWA_ENROLL_PORT` for OpenWA.
+- **OpenWA exits on Apple Silicon:** use the amd64 override above and inspect `docker compose ... logs openwa`; browser automation remains best-effort and unofficial.
+- **Filesystem:** runtime/data/profile paths use Node's `path.join` and recursive filesystem APIs. `.DS_Store`, `.env*`, runtime data, and logs are ignored. macOS paths do not need backslash conversion.
+- **Remote desktop:** leave `REMOTE_DESKTOP_URL` empty for local Mac development. Guacamole and Cloudflare Tunnel are optional deployment components, not Node/Docker prerequisites.
+
+### Windows vs macOS commands
+
+| Task | Windows | macOS |
+| --- | --- | --- |
+| Initial helper | `.\\scripts\\setup-windows.ps1` | `cp .env.example .env && npm ci` |
+| Start development | `.\\scripts\\start-pm2.ps1` or `npm run dev` | `npm run dev` |
+| Generate a 32-byte vault key | PowerShell RNG helper | `openssl rand -base64 32` |
+| Edit files | PowerShell/editor | `nano .env` or another editor |
+| Stop foreground app | `Ctrl+C` | `Control-C` |
+
+Docker Compose and npm commands themselves are identical; only shell syntax and the Windows browser/RDP helpers differ.
+
+## Security notes
+
+- Never commit `.env`, `.env.docker`, `data`, or `runtime` directories.
+- Never expose PostgreSQL, Redis, OpenWA, Guacamole, or raw RDP publicly.
+- Keep official provider credentials server-side and encrypted.
+- OpenWA is unofficial and should be isolated to dedicated test numbers.
+
+## Development
+
+```sh
+npm ci
+npm run dev
 npm test
 ```
