@@ -1,0 +1,35 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { assertOfficialTextPolicy, MessagePolicyRepository } = require('../src/messaging/messagePolicy');
+const { CanonicalSendService } = require('../src/messaging/canonicalSendService');
+
+test('official providers share consent suppression and session policy', () => {
+  for (const provider of ['whatsapp_cloud', 'ycloud']) {
+    assert.doesNotThrow(() => assertOfficialTextPolicy(provider, { consented: true, suppressed: false, sessionOpen: true }));
+    assert.throws(() => assertOfficialTextPolicy(provider, { consented: false, suppressed: false, sessionOpen: true }), error => error.code === 'CONSENT_REQUIRED');
+    assert.throws(() => assertOfficialTextPolicy(provider, { consented: true, suppressed: true, sessionOpen: true }), error => error.code === 'CONTACT_SUPPRESSED');
+    assert.throws(() => assertOfficialTextPolicy(provider, { consented: true, suppressed: false, sessionOpen: false }), error => error.code === 'SESSION_TEMPLATE_REQUIRED');
+  }
+});
+
+test('legacy provider does not inherit official session-window rules', () => {
+  assert.doesNotThrow(() => assertOfficialTextPolicy('openwa', null));
+});
+
+test('policy repository scopes consent suppression and inbound session to exact conversation workspace', async () => {
+  let call;
+  const repository = new MessagePolicyRepository({ async query(sql, params) { call = { sql, params }; return { rows: [{ consented: true, suppressed: false, session_open: true }] }; } });
+  assert.deepEqual(await repository.evaluateText({ dispatch: { conversationId: 'c', workspaceId: 'w' } }), { consented: true, suppressed: false, sessionOpen: true });
+  assert.deepEqual(call.params, ['c', 'w', 24]);
+  assert.match(call.sql, /m\.conversation_id\s*=\s*\$1/);
+  assert.match(call.sql, /cr\.workspace_id\s*=\s*\$2/);
+});
+
+test('canonical official send rejects policy before reservation and provider dispatch', async () => {
+  let reserved = 0;
+  let sent = 0;
+  const service = new CanonicalSendService({ repository: { async resolveConversationDispatch() { return { workspaceId: 'w', conversationId: 'c', numberId: 'n', providerConnectionId: 'p', provider: 'ycloud', providerStatus: 'active', automationEnabled: true, contactPhone: '+923001112222' }; }, async reserveOutbound() { reserved += 1; } }, policy: { async evaluateText() { return { consented: true, suppressed: false, sessionOpen: false }; } }, adapters: { ycloud: { async sendText() { sent += 1; } } } });
+  await assert.rejects(service.sendText({ workspaceIds: ['w'], conversationId: 'c', text: 'Hello', idempotencyKey: 'policy-1' }), error => error.code === 'SESSION_TEMPLATE_REQUIRED');
+  assert.equal(reserved, 0);
+  assert.equal(sent, 0);
+});
