@@ -14,7 +14,7 @@ CREATE TABLE whatsapp_message_templates (
   provider TEXT NOT NULL CHECK (provider IN ('whatsapp_cloud','ycloud')),
   official_template_id TEXT,
   waba_id TEXT,
-  name TEXT NOT NULL CHECK (name ~ '^[a-z0-9_]{1,512}$'),
+  name TEXT NOT NULL CHECK (char_length(name) BETWEEN 1 AND 512 AND name ~ '^[a-z0-9_]+$'),
   language TEXT NOT NULL CHECK (language ~ '^[a-z]{2,3}(_[A-Z]{2})?$'),
   category TEXT NOT NULL CHECK (category IN ('AUTHENTICATION','MARKETING','UTILITY')),
   status TEXT NOT NULL CHECK (status IN ('APPROVED','PENDING','REJECTED','PAUSED','DISABLED','ARCHIVED')),

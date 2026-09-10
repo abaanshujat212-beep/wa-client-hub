@@ -16,22 +16,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm }
+        with:
+          node-version: 22
+          cache: npm
       - run: npm ci
       - run: npm test
-  postgres-templates:
-    name: PostgreSQL template diagnostic (${{ matrix.expected }})
+  postgres:
+    name: PostgreSQL integration
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        expected: [success, '23502', '23503', '23505', '23514', P0001, 22P02, other]
     services:
       postgres:
         image: postgres:16-alpine
-        env: { POSTGRES_USER: postgres, POSTGRES_PASSWORD: postgres, POSTGRES_DB: wa_client_hub_test }
-        ports: [5432:5432]
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: wa_client_hub_test
+        ports:
+          - 5432:5432
         options: >-
           --health-cmd "pg_isready -U postgres -d wa_client_hub_test"
           --health-interval 5s
@@ -39,11 +41,41 @@ jobs:
           --health-retries 10
     env:
       NODE_ENV: test
-      TEMPLATE_EXPECTED: ${{ matrix.expected }}
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/wa_client_hub_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm }
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node --test --test-force-exit --test-concurrency=1 test/postgres-integration.test.js test/canonical-send-postgres.test.js test/meta-signup-postgres.test.js test/legacy-delta-postgres.test.js test/meta-signup-routes-postgres.test.js test/meta-signup-runtime-postgres.test.js test/meta-webhook-postgres.test.js test/ycloud-webhook-postgres.test.js test/message-policy-postgres.test.js
+  postgres-templates:
+    name: PostgreSQL official templates
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: wa_client_hub_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d wa_client_hub_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/wa_client_hub_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
       - run: npm ci
       - run: node --test --test-force-exit --test-concurrency=1 test/official-template-postgres.test.js
