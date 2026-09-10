@@ -1,47 +1,46 @@
 # Docker control plane
 
-The Compose stack runs the dashboard/API, a one-shot database migration, PostgreSQL 16, and persistent Redis. PostgreSQL and Redis use an internal Docker network and publish no host ports. The application binds to `127.0.0.1:3131` by default.
+The Compose stack runs the dashboard/API, a one-shot database migration, PostgreSQL 16, and persistent Redis. PostgreSQL and Redis use an internal Docker network and publish no host ports. The application binds to `127.0.0.1:3131` by default so a TLS reverse proxy can be the only public entry point.
 
-The Windows browser/calling engine remains outside this stack. Docker does not attempt to launch WhatsApp Web locally. The container has only an ephemeral, non-executable runtime directory so legacy launcher status checks can initialize without persistent browser-profile storage.
+The Windows browser/calling engine remains outside this stack. Docker does not attempt to launch WhatsApp Web locally; the secure Windows worker protocol is the next M1 issue.
+The container has only an ephemeral, non-executable runtime directory so legacy launcher status checks can initialize without granting persistent browser-profile storage to the control plane.
 
 ## Development start
 
 1. Copy `.env.docker.example` to `.env.docker`.
-2. Replace all `change-me` values, including the base64-encoded 32-byte `CONNECTOR_MASTER_KEY`.
-3. Validate and start the stack:
+2. Replace all `change-me` values. Do not commit `.env.docker`.
+3. Start and build the stack:
 
-```sh
-docker compose --env-file .env.docker config
+```powershell
 docker compose --env-file .env.docker up --build -d --wait
 ```
 
-Check readiness at `http://127.0.0.1:3131/api/ready`:
+Check readiness at `http://127.0.0.1:3131/api/ready`. A ready response reports both `database` and `redis` as `up`. View logs with `docker compose --env-file .env.docker logs -f app` and stop without deleting data with `docker compose --env-file .env.docker down`.
 
-```sh
-curl -fsS http://127.0.0.1:3131/api/ready
-docker compose --env-file .env.docker ps
-docker compose --env-file .env.docker logs -f app
-```
-
-Stop without deleting data:
-
-```sh
-docker compose --env-file .env.docker down
-```
-
-The migration container must finish successfully and Redis must be healthy before the application starts.
+The migration container must finish successfully and Redis must be healthy before the application starts. The application then connects to Redis and PostgreSQL before opening its HTTP listener.
 
 ## macOS and Apple Silicon
 
 Docker Desktop with Compose v2 is supported for the control plane. The Node 22 Bookworm, PostgreSQL 16, and Redis 7 images used by the stack have normal arm64 support, and the application has no native Node add-ons. OpenWA is an optional browser-automation profile with separate architecture limitations documented in `docs/openwa-adapter.md`.
 
+Generate local-only values in `.env.docker`, validate the resolved Compose configuration, and start the same stack:
+
+```sh
+docker compose --env-file .env.docker config
+docker compose --env-file .env.docker up --build -d --wait
+curl -fsS http://127.0.0.1:3131/api/ready
+docker compose --env-file .env.docker ps
+```
+
 Guacamole is not required for Mac backend development. It is an optional browser gateway to a separate Windows RDP host for the legacy calling workflow.
 
 ## Data persistence and recovery
 
-`postgres_data` stores canonical application data. `redis_data` uses append-only persistence. Normal `docker compose down`, image rebuilds, and container recreation retain named volumes. Do not run `docker compose down --volumes` where data must be retained.
+`postgres_data` stores canonical application data. `redis_data` uses append-only persistence for queues and ephemeral coordination state. Normal `docker compose down`, image rebuilds, and container recreation retain both named volumes.
 
-The included backup and restore PowerShell scripts remain Windows operator helpers. On macOS, use PostgreSQL tools or Docker without changing Windows behavior, for example:
+Do not run `docker compose down --volumes` in an environment whose data must be retained. PostgreSQL volume persistence is not a backup: use `scripts/backup-postgres.ps1` and copy encrypted backups off-host. Redis is not the canonical source of business records and can be rebuilt after a disaster.
+
+The PowerShell backup and restore scripts remain Windows operator helpers. On macOS, an equivalent local development dump can be created without changing those scripts:
 
 ```sh
 mkdir -p backups
@@ -53,15 +52,20 @@ docker compose --env-file .env.docker exec -T postgres \
 
 ## Production configuration
 
-```sh
+Build, scan, and publish an immutable image, set `APP_IMAGE` in the production environment file, and run:
+
+```powershell
 docker compose --env-file .env.production -f compose.yml -f compose.production.yml up -d --wait --no-build
 ```
 
-Production requires `COOKIE_SECURE=true`, unique secrets, strong passwords, and HTTPS. Never publish ports 5432 or 6379, the Docker socket, RDP, or administrative interfaces.
+Production requires `COOKIE_SECURE=true`, a unique session secret of at least 32 characters, strong database/admin passwords, and HTTPS at the reverse proxy. The production override keeps the app bound to loopback. Never publish ports 5432 or 6379, the Docker socket, RDP, or an administrative interface.
+
+Run exactly one `app` replica during the transitional PostgreSQL repository implementation. The migration job is concurrency-safe, but application mutations are intentionally single-writer until targeted SQL transactions replace legacy-state synchronization.
 
 ## Operations
 
-- Liveness: `/api/health`
-- Readiness: `/api/ready`
-- Inspect resolved configuration: `docker compose --env-file .env.docker config`
-- Recreate app only: `docker compose --env-file .env.docker up -d --force-recreate app`
+- Liveness: `/api/health` proves the HTTP process is responsive.
+- Readiness: `/api/ready` checks PostgreSQL and Redis and returns HTTP 503 if either is unavailable.
+- Inspect resolved configuration before deployment: `docker compose --env-file .env.docker config`.
+- Restart application containers without touching data: `docker compose --env-file .env.docker up -d --force-recreate app`.
+- Roll back the image by changing `APP_IMAGE` to the previous immutable tag and re-running the production command. Database rollback/export procedures are in `docs/postgresql-migration.md`.
