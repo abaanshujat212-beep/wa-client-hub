@@ -31,7 +31,7 @@ class MetaCloudApiAdapter {
 
   async sendTemplate({ connection, to, template }) {
     const recipient = normalizeRecipient(to); const c = await this.credentials(connection); const value = normalizeTemplate(template);
-    const payload = await this.graphClient.request({ path: [c.phoneNumberId, 'messages'], accessToken: c.accessToken, method: 'POST', body: { messaging_product: 'whatsapp', recipient_type: 'individual', to: recipient, type: 'template', template: { name: value.name, language: { code: value.language }, components: value.components } });
+    const payload = await this.graphClient.request({ path: [c.phoneNumberId, 'messages'], accessToken: c.accessToken, method: 'POST', body: { messaging_product: 'whatsapp', recipient_type: 'individual', to: recipient, type: 'template', template: { name: value.name, language: { code: value.language }, components: value.components } } });
     return this.result(payload);
   }
 
