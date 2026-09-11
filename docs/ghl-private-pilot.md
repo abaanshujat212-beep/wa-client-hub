@@ -2,6 +2,8 @@
 
 This runbook is for a private development pilot only. Use the owner's permanent Cloudflare-managed hostname and a named Cloudflare Tunnel. Do not use production credentials in local development and never commit secrets.
 
+The selected custom Conversation Provider is configured as the documented SMS provider type. The app requests only the official `conversations.write` scope and sends inbound records through `/conversations/messages/inbound` with `Version: 2023-02-21`. The Marketplace-provided `conversationProviderId` must be mapped to the exact workspace, WhatsApp number, and provider connection before delivery is enabled.
+
 ## Windows startup
 
 From PowerShell:
@@ -30,16 +32,9 @@ Invoke-WebRequest "http://localhost:$port/api/health"
 
 ## Permanent Cloudflare Named Tunnel
 
-Authenticate the local machine to the owner's Cloudflare account:
-
 ```powershell
 cloudflared tunnel login
 cloudflared tunnel create wa-client-hub-ghl
-```
-
-Create a DNS route for the permanent hostname:
-
-```powershell
 cloudflared tunnel route dns wa-client-hub-ghl <permanent-ghl-host>
 ```
 
@@ -68,17 +63,17 @@ https://<permanent-ghl-host>/webhooks/ghl/events
 https://<permanent-ghl-host>/webhooks/ghl/messages
 ```
 
-These URLs are stable only while the named tunnel, DNS route, and local backend remain configured. Do not use a random `trycloudflare.com` hostname as the primary pilot design. A Quick Tunnel may be used only as an emergency developer fallback and must not be registered as the production/private-pilot callback.
+Quick Tunnel is not the primary pilot design and must not be registered as the Marketplace callback.
 
 ## Pilot sequence
 
 1. Install the Marketplace app privately into one test location.
-2. Complete OAuth and bind the installation/location to one workspace.
-3. Map exactly one WhatsApp number and its exact provider connection through `/api/ghl/mappings`.
-4. Send one GHL message and confirm the canonical send path resolves that mapped number.
-5. Send one WhatsApp inbound message and confirm the Meta/YCloud processing hook delivers it to the mapped GHL conversation.
-6. Replay the webhook and confirm the correlation uniqueness constraint prevents duplication.
-7. Test an unknown location, wrong workspace, wrong number, and provider mismatch; each must fail closed.
-8. Confirm correlation rows contain GHL, canonical, provider, workspace, location, and number identifiers.
+2. Record the Marketplace `conversationProviderId` for the selected custom SMS provider.
+3. Complete OAuth and bind the installation/location to one workspace.
+4. Map exactly one WhatsApp number, exact provider connection, and the recorded `conversationProviderId` through `/api/ghl/mappings`.
+5. Send one documented `ProviderOutboundMessage` payload and confirm the signed `locationId` resolves the mapped number without any workspace or installation ID in the webhook body.
+6. Send one WhatsApp inbound message and confirm the Meta/YCloud processing hook calls the HighLevel inbound-message API with the provider ID, API version, and correlation `altId`.
+7. Replay the webhook and confirm the correlation uniqueness constraint prevents duplication.
+8. Test an unknown or ambiguous location, wrong workspace, wrong number, and provider mismatch; each must fail closed.
 
 Broad delivered/read/failed propagation remains the separate #46 boundary; this pilot stores those correlation states for the next status-sync extension.
