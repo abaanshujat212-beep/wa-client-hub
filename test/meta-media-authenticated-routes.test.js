@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 const { once } = require('node:events');
 const { createMetaMediaRouter } = require('../src/messaging/metaMediaRoutes');
 
+const csrfToken = 'a'.repeat(48);
+
 function multipartBody(boundary, fields, file) {
   const chunks = [];
   for (const [name, value] of Object.entries(fields)) {
@@ -19,7 +21,7 @@ async function fixture() {
   const app = express();
   const calls = { targets: [], uploads: [] };
   app.use((req, _res, next) => {
-    req.session = { userId: 'user-1', csrfToken: 'csrf-1' };
+    req.session = { userId: 'user-1', csrfToken };
     req.sessionID = 'session-1';
     next();
   });
@@ -47,7 +49,7 @@ test('authenticated multipart upload preserves exact scope and binary bytes', as
     const bytes = Buffer.from([0, 1, 2, 255]);
     const response = await fetch(f.url, {
       method: 'POST',
-      headers: { origin: 'https://app.test', 'x-csrf-token': 'csrf-1', 'content-type': `multipart/form-data; boundary=${boundary}` },
+      headers: { origin: 'https://app.test', 'x-csrf-token': csrfToken, 'content-type': `multipart/form-data; boundary=${boundary}` },
       body: multipartBody(boundary, { workspaceId: 'workspace-1', numberId: 'number-1' }, { filename: 'photo.png', contentType: 'image/png', bytes }),
     });
     assert.equal(response.status, 201);
@@ -63,7 +65,7 @@ test('authenticated media writes fail closed for a foreign origin before provide
   try {
     const response = await fetch(f.url, {
       method: 'POST',
-      headers: { origin: 'https://evil.test', 'x-csrf-token': 'csrf-1', 'content-type': 'application/json' },
+      headers: { origin: 'https://evil.test', 'x-csrf-token': csrfToken, 'content-type': 'application/json' },
       body: JSON.stringify({ workspaceId: 'workspace-1', numberId: 'number-1', mimeType: 'image/png', filename: 'photo.png', data: 'YQ==' }),
     });
     assert.equal(response.status, 403);
