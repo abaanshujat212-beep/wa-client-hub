@@ -1,0 +1,29 @@
+const { validCsrf, validateOrigin } = require('./metaSignupRoutes');
+const { validId } = require('./metaTemplateSyncRoutes');
+
+function mapError(error) {
+  const code = String(error?.code || '');
+  if (code === 'META_MEDIA_TARGET_NOT_FOUND') return { status: 404, body: { error: 'Meta media target not found', code } };
+  if (code === 'META_CREDENTIALS_UNAVAILABLE') return { status: 409, body: { error: 'Meta credentials are unavailable', code } };
+  if (code === 'META_MEDIA_ID_INVALID' || code === 'META_MEDIA_NUMBER_INVALID' || code === 'META_MEDIA_METADATA_INVALID' || code === 'META_MEDIA_DATA_INVALID' || code === 'META_MEDIA_SIZE_INVALID' || code === 'META_MEDIA_RESPONSE_INVALID') return { status: 400, body: { error: 'Meta media request is invalid', code } };
+  if (code.startsWith('META_HTTP_') || code === 'META_TIMEOUT' || code === 'META_NETWORK_ERROR') return { status: 503, body: { error: 'Meta media service is temporarily unavailable', code: 'META_MEDIA_UNAVAILABLE' } };
+  return { status: 503, body: { error: 'Meta media service is temporarily unavailable', code: 'META_MEDIA_UNAVAILABLE' } };
+}
+function exactScope(body) { return Boolean(body && typeof body === 'object' && !Array.isArray(body) && Object.keys(body).length === 2 && validId(body.workspaceId) && validId(body.numberId)); }
+function validUpload(body) { return Boolean(body && typeof body === 'object' && !Array.isArray(body) && Object.keys(body).length === 5 && validId(body.workspaceId) && validId(body.numberId) && typeof body.mimeType === 'string' && typeof body.filename === 'string' && typeof body.data === 'string'); }
+function createMetaMediaRouter({ enabled = false, pool, repository, service, origin } = {}) {
+  const express = require('express'); const router = express.Router({ mergeParams: true });
+  router.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+  if (enabled !== true) { router.use((_req, res) => res.status(404).json({ error: 'Not found' })); return router; }
+  if (!validateOrigin(origin) || typeof pool?.query !== 'function' || typeof repository?.target !== 'function' || typeof service?.upload !== 'function' || typeof service?.retrieve !== 'function' || typeof service?.remove !== 'function') throw new TypeError('Enabled Meta media dependencies are required');
+  async function actor(req, res) { if (!validId(req.params.connectionId) || typeof req.session?.userId !== 'string' || !req.session.userId || typeof req.sessionID !== 'string' || !req.sessionID) { res.status(401).json({ error: 'Please sign in' }); return null; } try { const row = (await pool.query('SELECT id FROM users WHERE id=$1 AND active=true', [req.session.userId])).rows[0]; if (!row) { res.status(401).json({ error: 'Please sign in' }); return null; } return row; } catch { res.status(503).json({ error: 'Meta media service is temporarily unavailable', code: 'META_MEDIA_UNAVAILABLE' }); return null; } }
+  async function scope(req, res, body) { const current = await actor(req, res); if (!current) return null; const workspaceId = typeof body?.workspaceId === 'string' ? body.workspaceId : ''; const numberId = typeof body?.numberId === 'string' ? body.numberId : ''; if (!exactScope({ workspaceId, numberId })) { res.status(400).json({ error: 'Exact workspace and number scope is required' }); return null; } try { return await repository.target({ actorId: current.id, workspaceId, connectionId: req.params.connectionId, numberId }); } catch (error) { const mapped = mapError(error); res.status(mapped.status).json(mapped.body); return null; } }
+  const writeGuard = (req, res, next) => { if (req.get('origin') !== origin || !validCsrf(req.session?.csrfToken, req.get('x-csrf-token'))) return res.status(403).json({ error: 'Security token or origin is invalid' }); if (!req.is('application/json')) return res.status(415).json({ error: 'JSON body required' }); next(); };
+  router.post('/', writeGuard, express.json({ limit: '140mb', strict: true }), async (req, res) => { if (!validUpload(req.body)) return res.status(400).json({ error: 'workspaceId, numberId, mimeType, filename, and data are required' }); const target = await scope(req, res, req.body); if (!target) return; try { const result = await service.upload({ accessToken: target.accessToken, phoneNumberId: target.phoneNumberId, mimeType: req.body.mimeType, filename: req.body.filename, data: req.body.data }); res.status(201).json(result); } catch (error) { const mapped = mapError(error); res.status(mapped.status).json(mapped.body); } });
+  router.get('/:mediaId', async (req, res) => { const workspaceId = typeof req.query.workspaceId === 'string' ? req.query.workspaceId : ''; const numberId = typeof req.query.numberId === 'string' ? req.query.numberId : ''; const target = await scope(req, res, { workspaceId, numberId }); if (!target) return; try { res.json(await service.retrieve({ accessToken: target.accessToken, mediaId: req.params.mediaId })); } catch (error) { const mapped = mapError(error); res.status(mapped.status).json(mapped.body); } });
+  router.delete('/:mediaId', writeGuard, async (req, res) => { if (!exactScope(req.body)) return res.status(400).json({ error: 'Exact workspace and number scope is required' }); const target = await scope(req, res, req.body); if (!target) return; try { res.json(await service.remove({ accessToken: target.accessToken, mediaId: req.params.mediaId })); } catch (error) { const mapped = mapError(error); res.status(mapped.status).json(mapped.body); } });
+  router.use((_req, res) => res.status(404).json({ error: 'Not found' }));
+  router.use((error, _req, res, _next) => { const large = error?.type === 'entity.too.large'; res.status(large ? 413 : 400).json({ error: large ? 'Meta media request is too large' : 'Invalid Meta media request' }); });
+  return router;
+}
+module.exports = { createMetaMediaRouter, exactScope, validUpload, mapError };
