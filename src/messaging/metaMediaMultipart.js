@@ -66,7 +66,10 @@ async function parseMetaMediaMultipart(stream, contentType, options = {}) {
       if (state === 'opening') {
         const index = buffer.indexOf(opening);
         if (index < 0) { if (buffer.length > opening.length) buffer = buffer.subarray(buffer.length - opening.length); return; }
-        buffer = buffer.subarray(index + opening.length);
+        buffer = buffer.subarray(index + opening.length); state = 'openingSuffix';
+      }
+      if (state === 'openingSuffix') {
+        if (buffer.length < 2) return;
         if (buffer.subarray(0, 2).toString() === '--') { buffer = buffer.subarray(2); state = 'done'; ended = true; return; }
         if (buffer.subarray(0, 2).toString() !== '\r\n') throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_BOUNDARY_INVALID');
         buffer = buffer.subarray(2); state = 'headers';
@@ -79,7 +82,10 @@ async function parseMetaMediaMultipart(stream, contentType, options = {}) {
       if (state === 'body') {
         const index = buffer.indexOf(marker);
         if (index < 0) { const keep = Math.min(buffer.length, marker.length); appendPart(current, buffer.subarray(0, buffer.length - keep), maxPartBytes); buffer = buffer.subarray(buffer.length - keep); return; }
-        appendPart(current, buffer.subarray(0, index), maxPartBytes); buffer = buffer.subarray(index + marker.length); finishPart();
+        appendPart(current, buffer.subarray(0, index), maxPartBytes); buffer = buffer.subarray(index + marker.length); finishPart(); state = 'boundarySuffix';
+      }
+      if (state === 'boundarySuffix') {
+        if (buffer.length < 2) return;
         if (buffer.subarray(0, 2).toString() === '--') { buffer = buffer.subarray(2); state = 'done'; ended = true; return; }
         if (buffer.subarray(0, 2).toString() !== '\r\n') throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_BOUNDARY_INVALID');
         buffer = buffer.subarray(2); state = 'headers';
