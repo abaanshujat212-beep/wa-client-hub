@@ -1,3 +1,5 @@
+const { createHash } = require('node:crypto');
+
 const DEFAULT_MAX_BYTES = 110 * 1024 * 1024;
 const DEFAULT_MAX_PART_BYTES = 100 * 1024 * 1024;
 const DEFAULT_MAX_HEADER_BYTES = 16 * 1024;
@@ -42,6 +44,7 @@ function appendPart(part, chunk, maxPartBytes) {
   if (!chunk.length) return;
   part.size += chunk.length;
   if (part.size > maxPartBytes) throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_PART_TOO_LARGE');
+  part.hash.update(chunk);
   part.chunks.push(Buffer.from(chunk));
 }
 
@@ -56,7 +59,7 @@ async function parseMetaMediaMultipart(stream, contentType, options = {}) {
   const opening = Buffer.from(`--${boundary}`);
   const marker = Buffer.from(`\r\n--${boundary}`);
   let buffer = Buffer.alloc(0); let total = 0; let state = 'opening'; let current = null; let ended = false; const parts = [];
-  const finishPart = () => { if (!current) throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_STATE_INVALID'); parts.push({ ...current.meta, data: Buffer.concat(current.chunks), sizeBytes: current.size }); if (parts.length > maxParts) throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_TOO_MANY_PARTS'); current = null; };
+  const finishPart = () => { if (!current) throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_STATE_INVALID'); parts.push({ ...current.meta, data: Buffer.concat(current.chunks), sizeBytes: current.size, sha256: current.hash.digest('hex') }); if (parts.length > maxParts) throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_TOO_MANY_PARTS'); current = null; };
   const process = () => {
     while (true) {
       if (state === 'done') return;
@@ -71,7 +74,7 @@ async function parseMetaMediaMultipart(stream, contentType, options = {}) {
       if (state === 'headers') {
         const end = buffer.indexOf(Buffer.from('\r\n\r\n'));
         if (end < 0) { if (buffer.length > maxHeaderBytes) throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_HEADERS_TOO_LARGE'); return; }
-        current = { meta: headersFromBlock(buffer.subarray(0, end)), chunks: [], size: 0 }; buffer = buffer.subarray(end + 4); state = 'body';
+        current = { meta: headersFromBlock(buffer.subarray(0, end)), chunks: [], hash: createHash('sha256'), size: 0 }; buffer = buffer.subarray(end + 4); state = 'body';
       }
       if (state === 'body') {
         const index = buffer.indexOf(marker);
