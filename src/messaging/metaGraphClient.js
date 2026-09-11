@@ -52,7 +52,8 @@ class MetaGraphClient {
     this.sleep = sleep;
   }
 
-  async request({ path, accessToken, method = 'GET', body = null, query = null }) {
+  async request({ path, accessToken, method = 'GET', body = null, formData = null, query = null }) {
+    if (body !== null && formData !== null) throw new TypeError('Meta Graph request body is ambiguous');
     const token = String(accessToken || '').trim();
     if (!token) throw new MetaGraphError('META_ACCESS_TOKEN_REQUIRED');
     const url = `${this.baseUrl}/${validVersion(this.graphVersion)}/${validPath(path)}${validQuery(query)}`;
@@ -60,7 +61,10 @@ class MetaGraphClient {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), this.timeoutMs);
       try {
-        const response = await this.fetch(url, { method, headers: { authorization: `Bearer ${token}`, ...(body === null ? {} : { 'content-type': 'application/json' }) }, body: body === null ? undefined : JSON.stringify(body), signal: controller.signal });
+        const headers = { authorization: `Bearer ${token}` };
+        const requestBody = formData !== null ? formData : body === null ? undefined : JSON.stringify(body);
+        if (formData === null && body !== null) headers['content-type'] = 'application/json';
+        const response = await this.fetch(url, { method, headers, body: requestBody, signal: controller.signal });
         let payload = null;
         try { payload = await response.json(); } catch {}
         if (response.ok) return payload;
