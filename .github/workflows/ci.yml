@@ -78,4 +78,15 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: node --test --test-force-exit --test-concurrency=1 test/official-template-postgres.test.js
+      - name: Run official template PostgreSQL tests
+        shell: bash
+        run: |
+          set +e
+          output=$(node --test --test-force-exit --test-concurrency=1 test/official-template-postgres.test.js test/meta-template-sync-postgres.test.js 2>&1)
+          status=$?
+          printf '%s\n' "$output"
+          if [ "$status" -ne 0 ]; then
+            message=$(printf '%s\n' "$output" | tail -n 40 | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | awk 'BEGIN { ORS="%0A" } { print }')
+            echo "::error title=Official template PostgreSQL tests failed::$message"
+            exit "$status"
+          fi
