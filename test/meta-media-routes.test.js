@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { exactScope, validUpload, mapError } = require('../src/messaging/metaMediaRoutes');
+const { exactScope, validUpload, validMultipartUpload, mapError, multipartPartLimit } = require('../src/messaging/metaMediaRoutes');
 
 test('Meta media routes require exact workspace and number scope', () => {
   assert.equal(exactScope({ workspaceId: 'workspace-1', numberId: 'number-1' }), true);
@@ -15,7 +15,22 @@ test('Meta media upload validation is bounded and rejects unexpected fields', ()
   assert.equal(validUpload({ ...valid, data: 42 }), false);
 });
 
+test('Meta media multipart validation accepts bytes but not encoded or extra fields', () => {
+  const valid = { workspaceId: 'workspace-1', numberId: 'number-1', mimeType: 'image/png', filename: 'photo.png', bytes: Buffer.from('a') };
+  assert.equal(validMultipartUpload(valid), true);
+  assert.equal(validMultipartUpload({ ...valid, bytes: 'YQ==' }), false);
+  assert.equal(validMultipartUpload({ ...valid, extra: true }), false);
+});
+
+test('Meta media multipart limits follow the allowlisted media types', () => {
+  assert.equal(multipartPartLimit({ contentType: 'image/png' }), 5 * 1024 * 1024);
+  assert.equal(multipartPartLimit({ contentType: 'audio/mpeg' }), 16 * 1024 * 1024);
+  assert.equal(multipartPartLimit({ contentType: 'application/pdf' }), 100 * 1024 * 1024);
+  assert.equal(multipartPartLimit({ contentType: 'application/x-unknown' }), 100 * 1024 * 1024);
+});
+
 test('Meta media errors do not expose provider details', () => {
   assert.deepEqual(mapError({ code: 'META_HTTP_500', message: 'server token' }), { status: 503, body: { error: 'Meta media service is temporarily unavailable', code: 'META_MEDIA_UNAVAILABLE' } });
+  assert.deepEqual(mapError({ code: 'META_MEDIA_MULTIPART_TOO_LARGE' }), { status: 413, body: { error: 'Meta media request is too large', code: 'META_MEDIA_REQUEST_TOO_LARGE' } });
   assert.equal(JSON.stringify(mapError({ code: 'META_HTTP_500', message: 'server token' })).includes('server token'), false);
 });

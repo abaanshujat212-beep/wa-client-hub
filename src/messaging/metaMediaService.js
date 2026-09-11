@@ -40,7 +40,7 @@ function normalizeUpload(input = {}, limits = MEDIA_LIMITS) {
   const mediaType = MIME_TYPES.get(mimeType);
   const filename = String(input.filename || '').trim();
   if (!mediaType || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(filename)) throw new MetaMediaError('META_MEDIA_METADATA_INVALID');
-  const bytes = canonicalBase64(input.data);
+  const bytes = Buffer.isBuffer(input.bytes) ? Buffer.from(input.bytes) : canonicalBase64(input.data);
   const limit = Number(limits[mediaType]);
   if (!Number.isSafeInteger(limit) || limit < 1 || bytes.length > limit) throw new MetaMediaError('META_MEDIA_SIZE_INVALID');
   const sha256 = crypto.createHash('sha256').update(bytes).digest('hex');
@@ -61,8 +61,8 @@ class MetaMediaService {
     this.limits = { ...MEDIA_LIMITS, ...limits };
   }
 
-  async upload({ accessToken, phoneNumberId, mimeType, filename, data }) {
-    const upload = normalizeUpload({ phoneNumberId, mimeType, filename, data }, this.limits);
+  async upload({ accessToken, phoneNumberId, mimeType, filename, data, bytes }) {
+    const upload = normalizeUpload({ phoneNumberId, mimeType, filename, data, bytes }, this.limits);
     const formData = new FormData();
     formData.set('messaging_product', 'whatsapp');
     formData.set('type', upload.mimeType);
