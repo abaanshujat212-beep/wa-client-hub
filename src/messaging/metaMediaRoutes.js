@@ -20,7 +20,6 @@ function mapError(error) {
   if (code.startsWith('META_HTTP_') || code === 'META_TIMEOUT' || code === 'META_NETWORK_ERROR' || code === 'META_MEDIA_DOWNLOAD_TIMEOUT' || code === 'META_MEDIA_DOWNLOAD_UNAVAILABLE') return { status: 503, body: { error: 'Meta media service is temporarily unavailable', code: 'META_MEDIA_UNAVAILABLE' } };
   return { status: 503, body: { error: 'Meta media service is temporarily unavailable', code: 'META_MEDIA_UNAVAILABLE' } };
 }
-
 function exactScope(body) { return Boolean(body && typeof body === 'object' && !Array.isArray(body) && Object.keys(body).length === 2 && validId(body.workspaceId) && validId(body.numberId)); }
 function validUpload(body) { return Boolean(body && typeof body === 'object' && !Array.isArray(body) && Object.keys(body).length === 5 && validId(body.workspaceId) && validId(body.numberId) && typeof body.mimeType === 'string' && typeof body.filename === 'string' && typeof body.data === 'string'); }
 function validMultipartUpload(body) {
@@ -30,7 +29,6 @@ function validMultipartUpload(body) {
   if (Buffer.isBuffer(body.bytes)) return keys.length === 5 && keys.every(key => [...base, 'bytes'].includes(key));
   return keys.length === 7 && keys.every(key => [...base, 'filePath', 'sizeBytes', 'sha256'].includes(key)) && typeof body.filePath === 'string' && Number.isSafeInteger(body.sizeBytes) && /^[a-f0-9]{64}$/.test(String(body.sha256 || ''));
 }
-
 function createMetaMediaRouter({ enabled = false, pool, repository, service, origin } = {}) {
   const express = require('express'); const router = express.Router({ mergeParams: true });
   router.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
