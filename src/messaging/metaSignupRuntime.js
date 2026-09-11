@@ -22,23 +22,31 @@ function validateMetaSignupConfig(env = process.env, store) {
   if (issues.length) throw new Error(`Meta signup configuration error: ${issues.join('; ')}`);
   return { enabled: true, origin: env.APP_ORIGIN, interval };
 }
-function createMetaSignupRuntime({ env = process.env, store, logger = console } = {}) {
+function createMetaSignupRuntime({ env = process.env, store, logger = console, fetchImpl = globalThis.fetch } = {}) {
   const config = validateMetaSignupConfig(env, store);
   const hidden = (_req, res) => res.status(404).json({ error: 'Not found' });
-  if (!config.enabled) return { enabled: false, router: hidden, connectionsRouter: hidden, start() {}, stop() {}, status: () => ({ enabled: false, cleanup: 'disabled' }) };
+  if (!config.enabled) return { enabled: false, router: hidden, connectionsRouter: hidden, templatesRouter: hidden, start() {}, stop() {}, status: () => ({ enabled: false, cleanup: 'disabled' }) };
   const { MetaEmbeddedSignupService } = require('./metaEmbeddedSignupService');
   const { createMetaSignupRouter } = require('./metaSignupRoutes');
   const { createMetaConnectionRouter } = require('./metaConnectionRoutes');
+  const { createMetaTemplateSyncRouter } = require('./metaTemplateSyncRoutes');
   const { MetaConnectionLifecycleRepository } = require('./metaConnectionLifecycleRepository');
   const { MetaConnectionDiagnosticsService } = require('./metaConnectionDiagnosticsService');
+  const { MetaGraphClient } = require('./metaGraphClient');
+  const { MetaTemplateSyncRepository } = require('./metaTemplateSyncRepository');
+  const { MetaTemplateSyncService } = require('./metaTemplateSyncService');
   const { CredentialVault } = require('../security/credentialVault');
   const pool = store.repository.pool;
   const signupService = new MetaEmbeddedSignupService({ graphVersion: env.META_GRAPH_VERSION, appId: env.META_APP_ID, appSecret: env.META_APP_SECRET }); signupService.assertConfigured();
   const vault = new CredentialVault({ env }); const protection = new MetaSignupProtection(pool);
   const repository = new MetaConnectionLifecycleRepository(pool, vault);
   const diagnostics = new MetaConnectionDiagnosticsService({ repository, graphVersion: env.META_GRAPH_VERSION });
+  const graphClient = new MetaGraphClient({ graphVersion: env.META_GRAPH_VERSION, fetchImpl });
+  const templateRepository = new MetaTemplateSyncRepository(pool, vault);
+  const templateService = new MetaTemplateSyncService({ repository: templateRepository, graphClient });
   const router = createMetaSignupRouter({ enabled: true, pool, signupService, vault, origin: config.origin, publicConfig: { appId: env.META_APP_ID, configId: env.META_EMBEDDED_SIGNUP_CONFIG_ID, graphVersion: env.META_GRAPH_VERSION } });
   const connectionsRouter = createMetaConnectionRouter({ enabled: true, pool, repository, diagnostics, origin: config.origin });
+  const templatesRouter = createMetaTemplateSyncRouter({ enabled: true, pool, service: templateService, origin: config.origin });
   let timer = null; let running = false; let lastSuccessAt = null; let lastFailureAt = null;
   async function cleanup() {
     if (running) return; running = true;
@@ -46,7 +54,7 @@ function createMetaSignupRuntime({ env = process.env, store, logger = console } 
     catch { lastFailureAt = new Date().toISOString(); logger.error?.('Meta signup cleanup failed'); }
     finally { running = false; }
   }
-  return { enabled: true, router, connectionsRouter,
+  return { enabled: true, router, connectionsRouter, templatesRouter,
     start() { if (timer) return; void cleanup(); timer = setInterval(() => void cleanup(), config.interval); timer.unref?.(); },
     stop() { if (timer) clearInterval(timer); timer = null; },
     status: () => ({ enabled: true, cleanup: running ? 'running' : 'scheduled', lastSuccessAt, lastFailureAt }), cleanup };
