@@ -21,6 +21,7 @@ function safeTemplate(row) {
     status: row.status,
     parameterFormat: row.parameter_format,
     components: row.components,
+    wabaId: row.waba_id,
     lastSyncedAt: new Date(row.last_synced_at).toISOString()
   };
 }
@@ -42,10 +43,11 @@ class MetaTemplateSyncRepository {
   }
 
   async target({ actorId, workspaceId, connectionId }, executor = this.pool) {
-    const result = await executor.query(`SELECT p.id,p.workspace_id,p.encrypted_credentials,p.encryption_key_id,a.waba_id,n.id AS whatsapp_number_id
+    const result = await executor.query(`SELECT p.id,p.workspace_id,p.encrypted_credentials,p.encryption_key_id,a.waba_id,a.phone_number_id,n.id AS whatsapp_number_id
       FROM users u JOIN provider_connections p ON p.workspace_id=$2
       JOIN meta_connection_assets a ON a.provider_connection_id=p.id AND a.workspace_id=p.workspace_id
       JOIN whatsapp_numbers n ON n.provider_connection_id=p.id AND n.workspace_id=p.workspace_id
+        AND n.external_session_id=a.phone_number_id
       WHERE u.id=$1 AND p.id=$3 AND p.provider='whatsapp_cloud' AND p.status='active'
       AND a.disconnected_at IS NULL AND ${managerPredicate}`, [actorId, workspaceId, connectionId]);
     if (!result.rowCount) throw new MetaTemplateSyncError('META_CONNECTION_NOT_FOUND');
@@ -62,18 +64,18 @@ class MetaTemplateSyncRepository {
     if (!expected) return;
     const connection = await client.query(`SELECT id FROM provider_connections
       WHERE id=$1 AND workspace_id=$2 AND provider='whatsapp_cloud' FOR UPDATE`, [expected.connectionId, expected.workspaceId]);
-    const asset = await client.query(`SELECT provider_connection_id FROM meta_connection_assets
+    const asset = await client.query(`SELECT provider_connection_id,phone_number_id FROM meta_connection_assets
       WHERE provider_connection_id=$1 AND workspace_id=$2 AND waba_id=$3 AND disconnected_at IS NULL FOR UPDATE`, [expected.connectionId, expected.workspaceId, expected.wabaId]);
-    const number = await client.query(`SELECT id FROM whatsapp_numbers
+    const number = await client.query(`SELECT id,external_session_id FROM whatsapp_numbers
       WHERE id=$1 AND workspace_id=$2 AND provider_connection_id=$3 FOR UPDATE`, [expected.numberId, expected.workspaceId, expected.connectionId]);
-    if (connection.rowCount !== 1 || asset.rowCount !== 1 || number.rowCount !== 1) {
+    if (connection.rowCount !== 1 || asset.rowCount !== 1 || number.rowCount !== 1 || asset.rows[0].phone_number_id !== number.rows[0].external_session_id) {
       throw new MetaTemplateSyncError('META_TEMPLATE_BINDING_CHANGED');
     }
   }
 
   async list(scope) {
     const target = await this.target(scope);
-    const result = await this.pool.query(`SELECT id,name,language,category,status,parameter_format,components,last_synced_at
+    const result = await this.pool.query(`SELECT id,name,language,category,status,parameter_format,components,waba_id,last_synced_at
       FROM whatsapp_message_templates
       WHERE workspace_id=$1 AND provider_connection_id=$2 AND whatsapp_number_id=$3 AND provider='whatsapp_cloud'
       ORDER BY name,language`, [target.workspaceId, target.connectionId, target.numberId]);
@@ -93,12 +95,12 @@ class MetaTemplateSyncRepository {
         names.push(template.name);
         languages.push(template.language);
         await client.query(`INSERT INTO whatsapp_message_templates(
-          id,workspace_id,provider_connection_id,whatsapp_number_id,provider,official_template_id,name,language,category,status,parameter_format,components,last_synced_at
-        ) VALUES($1,$2,$3,$4,'whatsapp_cloud',$5,$6,$7,$8,$9,$10,$11,clock_timestamp())
+          id,workspace_id,provider_connection_id,whatsapp_number_id,provider,official_template_id,waba_id,name,language,category,status,parameter_format,components,last_synced_at
+        ) VALUES($1,$2,$3,$4,'whatsapp_cloud',$5,$6,$7,$8,$9,$10,$11,$12,clock_timestamp())
         ON CONFLICT(provider_connection_id,whatsapp_number_id,name,language) DO UPDATE SET
-          official_template_id=EXCLUDED.official_template_id,category=EXCLUDED.category,status=EXCLUDED.status,
+          official_template_id=EXCLUDED.official_template_id,waba_id=EXCLUDED.waba_id,category=EXCLUDED.category,status=EXCLUDED.status,
           parameter_format=EXCLUDED.parameter_format,components=EXCLUDED.components,last_synced_at=clock_timestamp(),updated_at=clock_timestamp()`,
-        [crypto.randomUUID(), target.workspaceId, target.connectionId, target.numberId, template.officialTemplateId, template.name, template.language, template.category, template.status, template.parameterFormat, JSON.stringify(template.components)]);
+        [crypto.randomUUID(), target.workspaceId, target.connectionId, target.numberId, template.officialTemplateId, target.wabaId, template.name, template.language, template.category, template.status, template.parameterFormat, JSON.stringify(template.components)]);
       }
       await client.query(`UPDATE whatsapp_message_templates t SET status='ARCHIVED',last_synced_at=clock_timestamp(),updated_at=clock_timestamp()
         WHERE t.workspace_id=$1 AND t.provider_connection_id=$2 AND t.whatsapp_number_id=$3 AND t.provider='whatsapp_cloud'
@@ -106,8 +108,8 @@ class MetaTemplateSyncRepository {
           SELECT 1 FROM unnest($4::text[],$5::text[]) AS remote(name,language)
           WHERE remote.name=t.name AND remote.language=t.language
         )`, [target.workspaceId, target.connectionId, target.numberId, names, languages]);
-      await client.query("INSERT INTO audit_logs(id,user_id,action,details) VALUES($1,$2,'meta.templates.synced',$3)", [crypto.randomUUID(), scope.actorId, { workspaceId: target.workspaceId, connectionId: target.connectionId, numberId: target.numberId, templateCount: templates.length }]);
-      const saved = await client.query(`SELECT id,name,language,category,status,parameter_format,components,last_synced_at
+      await client.query("INSERT INTO audit_logs(id,user_id,action,details) VALUES($1,$2,'meta.templates.synced',$3)", [crypto.randomUUID(), scope.actorId, { workspaceId: target.workspaceId, connectionId: target.connectionId, numberId: target.numberId, wabaId: target.wabaId, templateCount: templates.length }]);
+      const saved = await client.query(`SELECT id,name,language,category,status,parameter_format,components,waba_id,last_synced_at
         FROM whatsapp_message_templates WHERE workspace_id=$1 AND provider_connection_id=$2 AND whatsapp_number_id=$3 AND provider='whatsapp_cloud'
         ORDER BY name,language`, [target.workspaceId, target.connectionId, target.numberId]);
       await client.query('COMMIT');

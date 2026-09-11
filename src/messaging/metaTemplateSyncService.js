@@ -70,10 +70,12 @@ class MetaTemplateSyncService {
         templates.push(template);
         if (templates.length > 2000) throw payloadError();
       }
+      const next = payload.paging?.next;
       const cursor = payload.paging?.cursors?.after;
-      if (!cursor || !payload.paging?.next) return { templates: await this.repository.replace(scope, templates, expectedTarget), count: templates.length };
-      after = String(cursor);
-      if (!after || after.length > 2048 || seenCursors.has(after)) throw payloadError();
+      if (next == null) return { templates: await this.repository.replace(scope, templates, expectedTarget), count: templates.length };
+      if (typeof next !== 'string' || !next.trim() || typeof cursor !== 'string' || !cursor.trim()) throw payloadError();
+      after = cursor.trim();
+      if (after.length > 2048 || seenCursors.has(after)) throw payloadError();
       seenCursors.add(after);
     }
     throw new MetaTemplateSyncError('META_TEMPLATE_PAGE_LIMIT');

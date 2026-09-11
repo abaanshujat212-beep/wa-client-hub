@@ -26,12 +26,19 @@ test('Meta template sync persists and archives only the exact tenant connection 
     const expectedTarget = { workspaceId: target.workspaceId, connectionId: target.connectionId, numberId: target.numberId, wabaId: target.wabaId };
     const first = [{ officialTemplateId: 't1', name: 'order_update', language: 'en', category: 'UTILITY', status: 'APPROVED', parameterFormat: 'POSITIONAL', components: [{ type: 'BODY', text: 'Hello' }] }];
 
+    await pool.query("UPDATE whatsapp_numbers SET external_session_id='999' WHERE id='sales'");
+    await assert.rejects(repository.target(scope), error => error.code === 'META_CONNECTION_NOT_FOUND');
+    await pool.query("UPDATE whatsapp_numbers SET external_session_id='222' WHERE id='sales'");
+
     await pool.query("UPDATE meta_connection_assets SET waba_id='999' WHERE provider_connection_id='meta1'");
     await assert.rejects(repository.replace(scope, first, expectedTarget), error => error.code === 'META_TEMPLATE_BINDING_CHANGED');
     assert.equal((await pool.query("SELECT count(*)::int AS count FROM whatsapp_message_templates WHERE workspace_id='w1'")).rows[0].count, 0);
     await pool.query("UPDATE meta_connection_assets SET waba_id='111' WHERE provider_connection_id='meta1'");
 
-    assert.equal((await repository.replace(scope, first, expectedTarget))[0].status, 'APPROVED');
+    const saved = await repository.replace(scope, first, expectedTarget);
+    assert.equal(saved[0].status, 'APPROVED');
+    assert.equal(saved[0].wabaId, '111');
+    assert.equal((await pool.query("SELECT waba_id FROM whatsapp_message_templates WHERE workspace_id='w1' AND name='order_update'")).rows[0].waba_id, '111');
     await repository.replace(scope, [], expectedTarget);
     assert.equal((await repository.list(scope))[0].status, 'ARCHIVED');
     const crossTenant = await pool.query("SELECT count(*)::int AS count FROM whatsapp_message_templates WHERE workspace_id='w2'");
@@ -39,6 +46,7 @@ test('Meta template sync persists and archives only the exact tenant connection 
     await assert.rejects(repository.target({ actorId: 'u2', workspaceId: 'w1', connectionId: 'meta1' }), error => error.code === 'META_CONNECTION_NOT_FOUND');
     const audit = await pool.query("SELECT details FROM audit_logs WHERE action='meta.templates.synced' ORDER BY created_at DESC LIMIT 1");
     assert.equal(audit.rows[0].details.numberId, 'sales');
+    assert.equal(audit.rows[0].details.wabaId, '111');
   } finally {
     await pool.end();
     await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

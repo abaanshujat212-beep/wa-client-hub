@@ -43,6 +43,17 @@ test('invalid or duplicate provider templates fail closed without persistence', 
   assert.equal(writes, 0);
 });
 
+test('incomplete provider pagination fails closed without persistence', async () => {
+  let writes = 0;
+  const repository = {
+    async target() { return { workspaceId: 'w', connectionId: 'p', numberId: 'n', wabaId: '123', accessToken: 'secret' }; },
+    async replace() { writes += 1; }
+  };
+  const service = new MetaTemplateSyncService({ repository, graphClient: { async request() { return { data: [], paging: { next: 'https://graph.example.test/next' } }; } } });
+  await assert.rejects(service.sync({ actorId: 'u', workspaceId: 'w', connectionId: 'p' }), error => error.code === 'META_TEMPLATE_PAYLOAD_INVALID');
+  assert.equal(writes, 0);
+});
+
 test('repeated provider pagination cursors fail closed', async () => {
   let writes = 0;
   const repository = { async target() { return { workspaceId: 'w', connectionId: 'p', numberId: 'n', wabaId: '123', accessToken: 'secret' }; }, async replace() { writes += 1; } };
