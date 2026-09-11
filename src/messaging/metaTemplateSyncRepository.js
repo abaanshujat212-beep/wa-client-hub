@@ -42,14 +42,14 @@ class MetaTemplateSyncRepository {
     this.vault = vault;
   }
 
-  async target({ actorId, workspaceId, connectionId }, executor = this.pool) {
+  async target({ actorId, workspaceId, connectionId, numberId }, executor = this.pool) {
     const result = await executor.query(`SELECT p.id,p.workspace_id,p.encrypted_credentials,p.encryption_key_id,a.waba_id,a.phone_number_id,n.id AS whatsapp_number_id
       FROM users u JOIN provider_connections p ON p.workspace_id=$2
       JOIN meta_connection_assets a ON a.provider_connection_id=p.id AND a.workspace_id=p.workspace_id
       JOIN whatsapp_numbers n ON n.provider_connection_id=p.id AND n.workspace_id=p.workspace_id
-        AND n.external_session_id=a.phone_number_id
+        AND n.id=$4 AND n.external_session_id=a.phone_number_id
       WHERE u.id=$1 AND p.id=$3 AND p.provider='whatsapp_cloud' AND p.status='active'
-      AND a.disconnected_at IS NULL AND ${managerPredicate}`, [actorId, workspaceId, connectionId]);
+      AND a.disconnected_at IS NULL AND ${managerPredicate}`, [actorId, workspaceId, connectionId, numberId]);
     if (!result.rowCount) throw new MetaTemplateSyncError('META_CONNECTION_NOT_FOUND');
     if (result.rowCount !== 1) throw new MetaTemplateSyncError('META_TEMPLATE_BINDING_INVALID');
     const row = result.rows[0];

@@ -10,8 +10,8 @@ test('enabled main runtime constructs with real Postgres, runs bounded cleanup a
   const admin = new Pool({ connectionString }); const pool = new Pool({ connectionString, options: `-c search_path=${schema}` }); const logs = [];
   try {
     await admin.query(`CREATE SCHEMA ${schema}`); await runMigrations(pool);
-    const runtime = createMetaSignupRuntime({ env: { META_SIGNUP_ENABLED: 'true', APP_ORIGIN: 'https://hub.example.test', META_GRAPH_VERSION: 'v23.0', META_APP_ID: '123456789', META_APP_SECRET: 'fixture-app-secret-not-real', CONNECTOR_MASTER_KEY: Buffer.alloc(32, 7).toString('base64'), CONNECTOR_KEY_ID: 'fixture', META_SIGNUP_CLEANUP_INTERVAL_MS: '60000' }, store: { driver: 'postgres', repository: { pool } }, logger: { info(message, counts) { logs.push({ message, counts }); }, error(message) { logs.push({ message }); } } });
-    assert.equal(runtime.enabled, true); assert.equal(typeof runtime.router, 'function');
+    const runtime = createMetaSignupRuntime({ env: { META_SIGNUP_ENABLED: 'true', APP_ORIGIN: 'https://hub.example.test', META_GRAPH_VERSION: 'v23.0', META_APP_ID: '123456789', META_APP_SECRET: 'fixture-app-secret-not-real', CONNECTOR_MASTER_KEY: Buffer.alloc(32, 7).toString('base64'), CONNECTOR_KEY_ID: 'fixture', META_SIGNUP_CLEANUP_INTERVAL_MS: '60000' }, store: { driver: 'postgres', repository: { pool } }, logger: { info(message, counts) { logs.push({ message, counts }); }, error(message) { logs.push({ message }); } }, fetchImpl: async () => ({ ok: true, status: 200, async json() { return { data: [] }; } }) });
+    assert.equal(runtime.enabled, true); assert.equal(typeof runtime.router, 'function'); assert.equal(typeof runtime.templatesRouter, 'function');
     await runtime.cleanup(); assert.match(runtime.status().lastSuccessAt, /^\d{4}-/);
     assert.deepEqual(logs[0], { message: 'Meta signup cleanup completed', counts: { states: 0, buckets: 0 } });
     runtime.start(); runtime.start(); runtime.stop(); runtime.stop(); assert.equal(runtime.status().enabled, true);

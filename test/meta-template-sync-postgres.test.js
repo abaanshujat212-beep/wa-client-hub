@@ -20,7 +20,7 @@ test('Meta template sync persists and archives only the exact tenant connection 
     await pool.query("INSERT INTO meta_connection_assets(provider_connection_id,workspace_id,waba_id,phone_number_id) VALUES('meta1','w1','111','222'),('meta2','w2','333','444')");
     await pool.query("INSERT INTO whatsapp_numbers(id,owner_id,workspace_id,label,phone,provider_connection_id,external_session_id) VALUES('sales','admin','w1','Sales','+923001110000','meta1','222'),('other','u2','w2','Other','+923002220000','meta2','444')");
     const repository = new MetaTemplateSyncRepository(pool, { decrypt() { return { accessToken: 'server-token' }; } });
-    const scope = { actorId: 'admin', workspaceId: 'w1', connectionId: 'meta1' };
+    const scope = { actorId: 'admin', workspaceId: 'w1', connectionId: 'meta1', numberId: 'sales' };
     const target = await repository.target(scope);
     assert.deepEqual(target, { workspaceId: 'w1', connectionId: 'meta1', numberId: 'sales', wabaId: '111', accessToken: 'server-token' });
     const expectedTarget = { workspaceId: target.workspaceId, connectionId: target.connectionId, numberId: target.numberId, wabaId: target.wabaId };
@@ -43,7 +43,7 @@ test('Meta template sync persists and archives only the exact tenant connection 
     assert.equal((await repository.list(scope))[0].status, 'ARCHIVED');
     const crossTenant = await pool.query("SELECT count(*)::int AS count FROM whatsapp_message_templates WHERE workspace_id='w2'");
     assert.equal(crossTenant.rows[0].count, 0);
-    await assert.rejects(repository.target({ actorId: 'u2', workspaceId: 'w1', connectionId: 'meta1' }), error => error.code === 'META_CONNECTION_NOT_FOUND');
+    await assert.rejects(repository.target({ actorId: 'u2', workspaceId: 'w1', connectionId: 'meta1', numberId: 'sales' }), error => error.code === 'META_CONNECTION_NOT_FOUND');
     const audit = await pool.query("SELECT details FROM audit_logs WHERE action='meta.templates.synced' ORDER BY created_at DESC LIMIT 1");
     assert.equal(audit.rows[0].details.numberId, 'sales');
     assert.equal(audit.rows[0].details.wabaId, '111');
