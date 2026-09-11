@@ -20,7 +20,8 @@ const MIGRATIONS = [
   ['013_ycloud_provider_foundation', 'docs/migrations/013_ycloud_provider_foundation.sql'],
   ['014_official_message_templates', 'docs/migrations/014_official_message_templates.sql'],
   ['015_campaign_template_binding', 'docs/migrations/015_campaign_template_binding.sql'],
-  ['016_media_provider_references', 'docs/migrations/016_media_provider_references.sql']
+  ['016_media_provider_references', 'docs/migrations/016_media_provider_references.sql'],
+  ['017_meta_media_retention', 'docs/migrations/017_meta_media_retention.sql']
 ].map(([id, file]) => ({ id, file: path.resolve(__dirname, '..', '..', file) }));
 
 function checksum(sql) {
