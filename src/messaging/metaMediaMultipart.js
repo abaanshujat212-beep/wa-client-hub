@@ -55,10 +55,12 @@ async function parseMetaMediaMultipart(stream, contentType, options = {}) {
   const maxPartBytes = Number(options.maxPartBytes ?? DEFAULT_MAX_PART_BYTES);
   const maxHeaderBytes = Number(options.maxHeaderBytes ?? DEFAULT_MAX_HEADER_BYTES);
   const maxParts = Number(options.maxParts ?? DEFAULT_MAX_PARTS);
-  if (![maxBytes, maxPartBytes, maxHeaderBytes, maxParts].every(Number.isSafeInteger) || maxBytes < 1 || maxPartBytes < 1 || maxHeaderBytes < 1 || maxParts < 1) throw new TypeError('Multipart limits are invalid');
+  const maxPartBytesFor = options.maxPartBytesFor === undefined ? () => maxPartBytes : options.maxPartBytesFor;
+  if (typeof maxPartBytesFor !== 'function' || ![maxBytes, maxPartBytes, maxHeaderBytes, maxParts].every(Number.isSafeInteger) || maxBytes < 1 || maxPartBytes < 1 || maxHeaderBytes < 1 || maxParts < 1) throw new TypeError('Multipart limits are invalid');
   const opening = Buffer.from(`--${boundary}`);
   const marker = Buffer.from(`\r\n--${boundary}`);
   let buffer = Buffer.alloc(0); let total = 0; let state = 'opening'; let current = null; let ended = false; const parts = [];
+  const currentLimit = () => { let limit; try { limit = Number(maxPartBytesFor(current.meta)); } catch { throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_LIMIT_INVALID'); } if (!Number.isSafeInteger(limit) || limit < 1 || limit > maxPartBytes) throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_LIMIT_INVALID'); return limit; };
   const finishPart = () => { if (!current) throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_STATE_INVALID'); parts.push({ ...current.meta, data: Buffer.concat(current.chunks), sizeBytes: current.size, sha256: current.hash.digest('hex') }); if (parts.length > maxParts) throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_TOO_MANY_PARTS'); current = null; };
   const process = () => {
     while (true) {
@@ -81,8 +83,8 @@ async function parseMetaMediaMultipart(stream, contentType, options = {}) {
       }
       if (state === 'body') {
         const index = buffer.indexOf(marker);
-        if (index < 0) { const keep = Math.min(buffer.length, marker.length); appendPart(current, buffer.subarray(0, buffer.length - keep), maxPartBytes); buffer = buffer.subarray(buffer.length - keep); return; }
-        appendPart(current, buffer.subarray(0, index), maxPartBytes); buffer = buffer.subarray(index + marker.length); finishPart(); state = 'boundarySuffix';
+        if (index < 0) { const keep = Math.min(buffer.length, marker.length); appendPart(current, buffer.subarray(0, buffer.length - keep), currentLimit()); buffer = buffer.subarray(buffer.length - keep); return; }
+        appendPart(current, buffer.subarray(0, index), currentLimit()); buffer = buffer.subarray(index + marker.length); finishPart(); state = 'boundarySuffix';
       }
       if (state === 'boundarySuffix') {
         if (buffer.length < 2) return;
