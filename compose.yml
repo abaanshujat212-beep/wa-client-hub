@@ -54,9 +54,13 @@ services:
     restart: unless-stopped
 
   openwa:
-    image: openwa/wa-automate@sha256:d31f5a8f59c4890a302294e9834a25f217a973d80339896ef74cf3d35d903cb3
+    build:
+      context: .
+      dockerfile: Dockerfile.openwa
     profiles: [openwa]
     init: true
+    ports:
+      - "127.0.0.1:8080:8080"
     environment:
       W_A_V: 4.76.0
       WA_PORT: 8080
@@ -67,7 +71,9 @@ services:
       WA_NO_KILL_ON_LOGOUT: "true"
     volumes:
       - openwa_sessions:/sessions
-    networks: [data, frontend]
+    networks:
+      - data
+      - frontend
     shm_size: 1gb
     restart: unless-stopped
 
