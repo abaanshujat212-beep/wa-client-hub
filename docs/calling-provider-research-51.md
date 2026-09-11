@@ -1,135 +1,243 @@
-# Calling-provider research for #51
+# Meta WhatsApp Business Calling research for #51
 
-- Status: **Research/POC preparation only — #55 remains blocked**
-- Snapshot refreshed: 2026-09-11
-- Base reviewed: `main` at `82ce66c1c1726b40f3be3bd862a3a8b18aa1b2f6`
-- Existing research snapshot: issue #51 comment `5575613769`
+- Status: **Meta-first research and POC preparation only — #55 remains blocked**
+- Snapshot: 2026-09-11
+- Base: `main` at `e59750624e7a3a00f0375675611ea6acccb2d40b`
+- Scope: evaluate and validate **Meta WhatsApp Business Calling API as the primary native path**, with PSTN/SIP providers only as fallback or adjacent integrations.
 
-This document preserves the required distinctions:
+## Correction to the previous research
 
-- Pakistan local-number availability is not the same as outbound termination to Pakistan.
-- Inbound Pakistan calling is a separate finding.
-- PSTN, SIP/BYOC, and app-to-app/WebRTC are separate products and failure domains.
-- Technical recording support is not legal permission or consent to record.
-- Meta WhatsApp Cloud API messaging is not evidence of general-purpose WhatsApp voice/video calling.
+The previous #51 documents treated Telnyx/Twilio/Vonage/Plivo/Agora as the primary calling path and stated that Meta WhatsApp calling was not verified. That is outdated. Meta now documents WhatsApp Business Calling through Cloud API, including user-initiated and business-initiated calls.
 
-## Current conclusion
+The corrected product decision is:
 
-`CONDITIONAL GO` for a **Telnyx Pakistan POC**, with **Twilio as provisional fallback**. This is not an approval to implement #55. No provider is selected until the owner approves weights and primary/fallback, vendors confirm unresolved commercial/compliance facts, and the mandatory live POC passes.
+> Evaluate and validate Meta WhatsApp Business Calling API as the primary provider-neutral/native calling path, with fallback PSTN/SIP provider options only where needed.
 
-## Current official evidence
+This is not production approval. It does not implement #55, select a provider for production, claim account eligibility, or claim video/screen-sharing readiness.
 
-### Telnyx
+## Official Meta evidence
 
-- The Pakistan numbers page advertises Pakistani virtual numbers, local presence, porting, and the ability to make/receive calls; it does not prove live inventory for this account, eligibility, KYC, resale/suballocation, caller-ID policy, or every Pakistani network. [Pakistan numbers](https://telnyx.com/phone-numbers/pakistan)
-- Telnyx’s 2025 release states that Pakistan geographical outbound voice was added to its two-way voice coverage. This is evidence of a product claim, not a completed Pakistan test or a current prefix-rate quote. [Coverage release](https://telnyx.com/release-notes/voice-coverage-update-aug-2025)
-- The official React Native documentation describes a React Native WebRTC voice SDK, Android FCM incoming-call handling, background/terminated handling, and call controls. Native setup and a physical-device POC remain required. [React Native SDK](https://developers.telnyx.com/docs/development/webrtc/react-native-sdk) · [Android/background setup](https://developers.telnyx.com/docs/development/webrtc/react-native-sdk/push-notification/app-setup)
-- Pakistan number documentation lists country-specific required-document categories. The exact category, KYC, address, business, porting, and account-eligibility result for this owner remain vendor-confirmation items. [Required documents](https://support.telnyx.com/en/articles/5469551-international-numbers-required-documents)
-- Exact Pakistan termination rates, caller-ID behavior by mobile/fixed network, recording-region commitments, and live inventory are unresolved.
+Primary sources reviewed:
 
-### Twilio
+- [WhatsApp Business Calling overview](https://developers.facebook.com/documentation/business-messaging/whatsapp/calling)
+- [Calling API and webhook reference](https://developers.facebook.com/documentation/business-messaging/whatsapp/calling/reference)
+- [User-initiated calls](https://developers.facebook.com/documentation/business-messaging/whatsapp/calling/user-initiated-calls)
+- [SIP configuration](https://developers.facebook.com/documentation/business-messaging/whatsapp/calling/sip)
+- [WhatsApp webhook overview](https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/overview)
+- [Cloud API get started](https://developers.facebook.com/documentation/business-messaging/whatsapp/get-started)
 
-- Current official Pakistan Voice pricing shows `$0.1550/min` for local Pakistan termination, `$0.1800/min` for Pakistan mobile termination, and `$0.0040/min` for browser/app and SIP legs. The page does not establish that a Pakistan local DID can be purchased for this account or that inbound Pakistan calling is available through a local number. [Pakistan Voice pricing](https://www.twilio.com/en-us/voice/pricing/pk)
-- The official React Native SDK supports backend-issued access tokens, incoming call registration/call invites, and outgoing connection. Android push and physical-device behavior still require the POC. [Voice React Native SDK](https://www.twilio.com/docs/voice/sdks/react-native)
-- Twilio documents signed Voice webhooks and recording status callbacks. Retry, ordering, and reconciliation behavior must be exercised in the POC. [Voice webhooks](https://www.twilio.com/docs/usage/webhooks/voice-webhooks) · [Webhook security](https://www.twilio.com/docs/usage/webhooks/webhooks-security)
-- Twilio’s published pricing is useful for planning only; taxes, carrier fees, number rental, recording/storage, failed-call billing, and account-specific restrictions remain separate.
+Meta documents that Calling API can receive calls from WhatsApp users and initiate calls from the business to WhatsApp users. The default architecture uses Graph APIs and Webhooks for signaling and WebRTC media with ICE, DTLS, and SRTP. OPUS is the documented default audio codec; additional codecs must be treated as capability evidence, not assumed support.
 
-### Vonage
+Meta also documents SIP as an optional, explicitly enabled signaling architecture. SIP can use WebRTC media or SDES/SRTP media depending on the approved configuration. The same Cloud API business number is used for messaging and calling.
 
-- The Voice API documents PSTN call flows, signed/event webhooks, detailed lifecycle statuses, recording, and SIP-related capabilities. [Voice API](https://developer.vonage.com/en/api/vonage-business-cloud/call-recording) · [Webhook reference](https://developer.vonage.com/en/voice/voice-api/webhook-reference)
-- The Client SDK provides Android/iOS WebRTC in-app voice, mute, reconnect, and related controls; the Android guide documents API-level requirements. [In-app voice](https://developer.vonage.com/en/vonage-client-sdk/in-app-voice/overview) · [Android SDK](https://developer.vonage.com/en/vonage-client-sdk/add-sdk-to-your-app/android)
-- A maintained first-party React Native package was not verified. React Native tutorials/native bridging exist, but maintenance and support for this product need confirmation.
-- Pakistan local number, inbound Pakistan model, exact API rates, caller-ID constraints, KYC, and React Native support remain vendor-confirmation items. Global/business calling pages mentioning Pakistan are not sufficient evidence for API DID inventory.
+Meta marks some richer calling capabilities, including video-related capabilities in the overview, as planned or in development. This gate therefore targets **audio only** and must not describe video or screen sharing as production-ready.
 
-### Plivo
+## Repo audit at the current main
 
-- Current Pakistan Voice pricing advertises `$0.1410/min` local/mobile outbound, `$0.0033/min` Browser SDK/SIP, and **inbound not supported** on that country page. [Pakistan Voice pricing](https://www.plivo.com/voice/pricing/pk/)
-- Plivo’s official mobile SDK notice says native Android/iOS SDKs are no longer supported, which is a hard blocker for selecting Plivo as the Android in-app provider. [Deprecated mobile SDKs](https://plivo.com/docs/voice/client/androidios/overview)
-- Plivo documents Voice callbacks, duplicate delivery, retry behavior, and V3 signature validation. [Callbacks](https://www.plivo.com/docs/voice/concepts/callbacks) · [Signature validation](https://www.plivo.com/docs/voice/concepts/signature-validation)
-- Plivo remains a possible backend PSTN/SIP carrier candidate, not the current React Native Android MVP provider. Pakistan KYC, number inventory, caller ID, and any contradiction between current SDK pages require written confirmation.
+The repository already provides useful Meta messaging foundations:
 
-### Agora / SIP-oriented option
-
-- The official React Native SDK supports Android/iOS real-time media and is maintained through Agora’s official extension repository. This is app-to-app/WebRTC media, not a Pakistani PSTN number. [React Native SDK](https://github.com/AgoraIO-Extensions/react-native-agora)
-- Agora Cloud Recording supports cloud recording with delayed file availability and separate pricing/retention considerations. [Cloud Recording concepts](https://docs.agora.io/en/realtime-media/cloud-recording/core-concepts) · [Pricing](https://docs.agora.io/en/realtime-media/cloud-recording/reference/pricing)
-- Agora’s PSTN/SIP gateway documentation describes a separate gateway/carrier design, requires provisioning, and includes Twilio configuration. It therefore adds a carrier/vendor boundary and does not prove Pakistan DID inventory or rates. [PSTN/SIP gateway](https://github.com/AgoraIO-Solutions/pstn-doc)
-- Agora is not a standalone Pakistan PSTN provider for this pilot. It is only viable as a two-vendor WebRTC plus SIP/PSTN architecture after separate carrier approval.
-
-## Pakistan findings
-
-| Required question | Current evidence-backed conclusion | Gate status |
+| Foundation | Current state | Calling implication |
 |---|---|---|
-| Pakistan local number available? | Telnyx publicly advertises Pakistan numbers; live inventory, number type, eligibility, KYC, address/business requirements, porting, and resale restrictions are unverified. Twilio/Vonage API inventory is not proven from current public evidence. Plivo’s current Pakistan page does not support inbound. Agora is not a DID provider. | **Vendor/account confirmation required** |
-| Outbound calls to Pakistan numbers supported? | Twilio and Plivo publish Pakistan outbound rates. Telnyx publicly announces Pakistan geographical two-way voice coverage. Vonage has Voice API capability but Pakistan prefix rate/CLI must be confirmed. Agora requires a separate carrier. | **Live prefix/network tests required** |
-| Inbound Pakistan calling supported, through which number model? | Telnyx advertises make/receive behavior for Pakistan numbers but account eligibility and network reach are unverified. Twilio, Vonage, and Plivo local inbound models are not proven for this pilot; Plivo’s current Pakistan page says inbound is not supported. Agora depends on the separate carrier. | **Live inbound test and written confirmation required** |
+| App/WABA/phone binding | `meta_connection_assets` stores WABA, phone-number, business portfolio, verification, and lifecycle data. | Reuse this binding; do not create a second Meta connection model. |
+| Encrypted credentials | `provider_connections.encrypted_credentials` is resolved through the server-side credential vault. | No Meta secret or long-lived token may reach mobile/browser. |
+| Embedded Signup | `public/meta-signup.js` and `metaSignup*` services validate the signed-in workspace, exchange the code server-side, verify the selected WABA phone, and encrypt the resulting token. | Calling eligibility must attach to the existing installed connection. |
+| Graph transport | `MetaGraphClient` provides versioned Graph paths, bearer authentication, timeout, bounded retry, and safe error classes. | Calling Graph actions should reuse this client. |
+| Lifecycle/diagnostics | Existing lifecycle routes expose connection status, token state, subscribed-app state, account state, quality, and diagnostics timestamps. | Extend diagnostics only after exact Calling settings fields are verified. |
+| Webhook verification | `metaWebhookRoutes` handles challenge verification and raw-body `x-hub-signature-256` verification. | Calling should use the same verified receiver and a separate calling normalization/service layer. |
+| Durable ingestion | `metaWebhookRepository` resolves by WABA + phone number, persists receipts, deduplicates, retries, dead-letters, and preserves workspace/provider/number ownership. | Reuse the receipt/security pipeline for `calls` events. |
+| Exact routing | `resolveAsset` joins the exact WABA, phone number, provider connection, workspace, and canonical number. | Preserve `workspace → WhatsApp number → Meta connection → CallSession`. Never use contact ID or first-number inference. |
+| UI | Embedded Signup, connection status, diagnostics, activation, templates, and media are exposed. | No live call button exists today; readiness must precede future call actions. |
 
-No finding above is a regulatory, KYC, caller-ID, or number-inventory guarantee. Pakistan telecom/legal advice, vendor compliance guidance, and owner acceptance remain required.
+Important gaps found:
 
-## Provisional scoring matrix
+- The current normalizer accepts `messages` changes and message statuses, not `calls` changes.
+- Current diagnostics do not retrieve Calling phone-number settings such as calling status, call icon visibility, call hours, callback settings, or SIP mode.
+- `call_events` is only a preliminary legacy table with `started/answered/missed/ended/unknown`; there is no `CallSession`, call participant, capability, idempotency, or call-webhook receipt model.
+- Existing frontend Meta UI is messaging/connection UI, not a Calling UX.
+- The current code must not be extended by silently treating a message webhook or contact record as a call event.
 
-Scores are 0–5 and are **not owner-approved**. `VC` means written vendor confirmation is required. Raw and weighted values are planning inputs only; they must be re-scored after the POC.
+## Architecture comparison
 
-Provisional weights total 100 and intentionally preserve the issue’s distinction between local numbers, outbound termination, inbound calling, PSTN/SIP, and app/WebRTC:
+### A. Graph API + Webhooks + WebRTC — recommended MVP
 
-| Criterion | Weight | Telnyx | Twilio | Vonage | Plivo | Agora/SIP |
-|---|---:|---:|---:|---:|---:|---:|
-| Pakistan local number availability | 12 | 4 VC | 1 VC | 1 VC | 0–1 VC | 0 |
-| Outbound calling to Pakistan | 12 | 4 VC | 5 | 3 VC | 5 | 1 VC |
-| Inbound Pakistan calling | 8 | 4 VC | 1 VC | 1 VC | 0 | 1 VC |
-| International coverage | 5 | 4 | 5 | 5 | 5 | 5 RTC / not PSTN |
-| React Native SDK quality | 12 | 4 | 5 | 2 VC | 0 for supported native SDK | 5 RTC |
-| Inbound/outbound capability | 7 | 5 | 5 | 4 | 3 | 2 PSTN / 5 RTC |
-| Recording support | 7 | 5 | 5 | 5 | 4 | 5 RTC |
-| Webhook reliability/security | 7 | 4 VC | 4 | 4 | 4 | 2 VC for carrier |
-| Call status granularity | 5 | 4 VC | 4 | 5 | 4 | 3 VC |
-| Pricing | 7 | 3 VC | 2 | 2 VC | 4 | 5 RTC / carrier excluded |
-| Data residency | 5 | 3 VC | 5 VC | 4 VC | 2 VC | 3 VC |
-| GHL external-call mapping | 3 | 4 | 4 | 4 | 4 | 3 |
-| SIP/BYOC | 4 | 5 | 5 | 5 | 5 | 4 |
-| Caller ID/masking | 3 | 4 VC | 4 VC | 4 VC | 3 VC | 0 without carrier |
-| Trial/sandbox | 3 | 4 VC | 5 | 4 | 5 | 5 RTC |
+**Signaling:** Meta sends `calls` webhooks and accepts Calling API actions through Graph endpoints on the exact phone-number ID. User-initiated and business-initiated flows have different permission and SDP timing requirements.
 
-**Provisional recommendation:** Telnyx primary POC, Twilio fallback. This recommendation is not final until the owner approves the weights and vendors answer unresolved questions.
+**Media:** WebRTC between the approved business media endpoint and Meta/WhatsApp. SDP offer/answer and ICE candidates are exchanged through the Meta-defined API/webhook flow. Media must not be invented from a message event.
 
-### Hard disqualifiers
+**Backend:** verify and durably receipt raw webhooks; resolve exact asset; normalize raw call events; persist idempotent call observations; authorize Graph actions; issue only short-lived/opaque client authorization; reconcile missed/out-of-order events; audit every action.
 
-- No supported Android/React Native path for the approved MVP.
-- No lawful/commercial route to required Pakistan destinations.
-- Unverified or spoofed caller ID is required.
-- No signed/verifiable events or no way to reconcile final state.
-- Recording cannot be disabled, retrieved, deleted, or governed by consent/retention policy.
-- Provider credentials would need to be embedded in the mobile app.
-- Provider identity cannot be preserved as an internal external-provider reference.
-- Vendor cannot provide written Pakistan KYC/regulatory guidance.
+**Mobile/browser:** own the WebRTC peer connection and audio device surface, with microphone permission, mute, speaker, Bluetooth/audio-route handling, reconnect, teardown, and platform-specific foreground/background behavior. The client never receives the Meta app secret or long-lived business token.
 
-## Unresolved vendor and owner questions
+**NAT/ICE:** ICE connectivity is required. STUN/TURN requirements depend on the media endpoint and network; a production design should plan TURN for restrictive enterprise/mobile networks rather than assuming direct connectivity.
 
-1. Can this Pakistan-based SaaS business provision local numbers for its own tenants, or would provisioning/resale require a different commercial agreement?
-2. Which Pakistan fixed/mobile prefixes are available for termination and inbound origination?
-3. What KYC, local address, business registration, porting, and caller-ID evidence are required?
-4. Which CLI is displayed on Jazz, Zong, Ufone, Telenor, and a representative fixed network?
-5. Exact Pakistan rates, billing increments, failed-call rules, number rental, recording, storage, transcription, and minimum commitments?
-6. Can the chosen SDK deliver incoming calls while Android is foregrounded, backgrounded, force-stopped/terminated, or after network recovery?
-7. What are event IDs, signatures, replay windows, retry policies, ordering guarantees, and delivery logs?
-8. Which regions process/store signaling, recordings, logs, and transcripts, and what retention/deletion controls exist?
-9. What trial/sandbox restrictions apply to Pakistan numbers, caller IDs, test destinations, recording, and concurrency?
-10. Does the owner approve the proposed weights and Telnyx-primary/Twilio-fallback recommendation?
+**Authentication:** backend credential vault plus workspace/RBAC/number eligibility checks. Client authorization is short-lived and capability-scoped.
 
-## Mandatory POC checklist
+**Events:** evidence-driven initiated/permission/ringing/connected/terminal states. Raw Meta call ID, webhook event ID, SDP, and provider payload remain internal.
 
-- [ ] Owner approves scoring weights and usage assumptions.
-- [ ] Owner approves primary and fallback provisionally, subject to POC exit.
-- [ ] Written vendor responses cover KYC, commercial eligibility, caller ID, inbound model, rates, regions, SDK support, and recording.
-- [ ] Live/sandbox Pakistan-number inventory is confirmed.
-- [ ] One disposable pilot number completes provisioning/KYC.
-- [ ] Outbound tests reach representative Pakistani mobile and fixed networks.
-- [ ] Inbound tests pass where the selected number model supports inbound.
-- [ ] Caller-ID display is recorded and validated without spoofing.
-- [ ] React Native Android POC covers outgoing, supported incoming, background/terminated delivery, mute, speaker, reconnect, and end.
-- [ ] Signed webhook verification, replay rejection, duplicate, retry, and out-of-order fixtures pass.
-- [ ] Recording is tested only with explicit consent; retrieval and deletion are verified.
-- [ ] Provider CDR/invoice is reconciled against observed timestamps and duration.
-- [ ] Workspace/device isolation and fraud/spend-limit tests pass.
-- [ ] ADR is approved and the owner explicitly marks #51 unblocked.
+**Incoming/background behavior:** inbound delivery and ringing must be proven on the chosen browser/React Native surface. Android background/terminated behavior is a hard POC item, not an assumption from messaging webhooks.
 
-Until every item is complete, **do not create #55 implementation work**.
+**Scale/operations:** one existing Meta connection and webhook plane, one call service/worker, per-workspace rate and concurrency controls, and a separate media/turn capacity plan.
+
+**Recording:** not assumed. If later enabled, store only an opaque provider reference with consent, retention, deletion, access, and audit controls.
+
+**Compatibility:** highest compatibility with the current Meta Cloud API connection, exact-number routing, Graph client, webhook receiver, and encrypted credential model.
+
+### B. SIP-based WhatsApp Calling
+
+**Signaling:** SIP over TLS to the SIP endpoint configured for the WhatsApp business phone number. Meta documents SIP as requiring explicit enablement instead of the default Graph/Webhook signaling path.
+
+**Media:** either WebRTC media through the SIP architecture or SDES/SRTP where explicitly supported and approved. SDP, SIP authentication, digest/credentials, BYOC/PBX behavior, and termination must be tested as separate boundaries.
+
+**Backend:** operate or integrate a SIP edge/PBX/media service, protect SIP credentials, handle registration/authentication, map SIP dialogs to exact CallSessions, verify Meta SIP/webhook events, and provide reconciliation.
+
+**Mobile/browser:** connects to the chosen PBX/media service or a controlled WebRTC gateway; audio permissions and device routing remain the client responsibility.
+
+**NAT/ICE:** WebRTC still requires ICE/STUN/TURN when WebRTC media is used. SIP adds firewall, TLS, RTP/SRTP, NAT, codec, and port-range operations.
+
+**Authentication:** Meta SIP settings plus connection-scoped SIP credentials and backend/PBX authorization. No credentials belong in the client.
+
+**Events:** SIP dialogs and Meta call webhooks must be correlated by internal provider identity; no provider call ID becomes the public ID.
+
+**Incoming/background behavior:** depends on SIP edge/PBX, push strategy, and mobile/browser client; it is more operationally complex than the default path.
+
+**Scale/operations:** useful for PBX, queues, enterprise routing, server-side media, and existing telephony teams, but introduces a new media/signaling plane and monitoring burden.
+
+**Recording:** potentially simpler in a controlled PBX/media plane, but still subject to consent, jurisdiction, retention, deletion, and access controls.
+
+**Compatibility:** appropriate later for enterprise PBX/SIP/BYOC needs; not justified for the initial WA Client Hub MVP without an existing SIP requirement.
+
+### MVP decision
+
+Choose **Graph API + Webhooks + WebRTC** for the Meta Calling POC. Keep SIP as a documented later architecture for PBX, call-center queues, enterprise routing, or server-side media requirements. Do not add SIP dependencies or call infrastructure in this gate PR.
+
+## Eligibility and readiness contract
+
+Calling readiness is per exact connected number, not per workspace or contact. The future provider-neutral representation should expose status only, never secrets:
+
+```json
+{
+  "provider": "meta",
+  "workspaceId": "internal-workspace-id",
+  "whatsappNumberId": "internal-number-id",
+  "providerConnectionId": "internal-connection-id",
+  "mode": "graph_webrtc",
+  "cloudApiNumber": "unknown",
+  "wabaBinding": "unknown",
+  "appBinding": "unknown",
+  "messagingPermission": "unknown",
+  "callsWebhook": "unknown",
+  "callingEnabled": "unknown",
+  "callIconVisibility": "unknown",
+  "callHours": "unknown",
+  "callbackRequestSettings": "unknown",
+  "productionThreshold": "unknown",
+  "countryEligibility": "unknown",
+  "businessInitiatedEligible": "unknown",
+  "inboundEligible": "unknown",
+  "accountRestrictions": "unknown",
+  "testOrProduction": "unknown",
+  "canReceiveCalls": false,
+  "canBusinessInitiateCall": false,
+  "lastCheckedAt": null,
+  "blockingReasons": ["not_checked"]
+}
+```
+
+Required checks:
+
+- Cloud API number, not WhatsApp Business App number.
+- Correct WABA and exact Meta app binding.
+- App subscribed to the WABA and `calls` webhook field, unless the approved SIP mode uses its documented subscription model.
+- `whatsapp_business_messaging` permission available for the business number.
+- Calling enabled in phone-number Calling settings.
+- Call icon visibility, business calling hours, callback-request settings, and inbound settings explicitly checked.
+- Production messaging eligibility/limit checked against the current Meta account and test-number rules.
+- Country eligibility checked for the business number. Meta’s current business-initiated exclusion list must be rechecked at test time; Pakistan is not in the list observed in this snapshot, but that is not account-level approval.
+- Account quality, restrictions, low-pickup/user-feedback restrictions, and number mode checked.
+- `canReceiveCalls` and `canBusinessInitiateCall` are derived from verified Graph/settings/permission evidence, never from a hard-coded country or UI flag.
+
+The current backend does not yet implement these Calling-specific fields. This document is the readiness contract for the POC; adding them to diagnostics belongs in a narrowly scoped follow-up after the exact Meta settings responses and permissions are confirmed.
+
+## User-initiated call flow
+
+```text
+WhatsApp user
+  → calls the business Cloud API number
+  → Meta emits a calls webhook
+  → verified raw receipt / exact WABA + phone resolution
+  → workspace + exact WhatsApp number + Meta connection
+  → canonical CallSession and agent routing
+  → approved WebRTC offer/answer flow
+  → accept, reject, timeout, end, or missed state
+```
+
+The POC must capture redacted fixtures for call-created/connect/terminate and any permission or error events actually emitted by the selected Meta configuration. The calling reference documents call actions, SDP answer handling, and call-connect webhooks. Do not infer exact event names or transitions from message webhooks.
+
+Required behavior:
+
+- Verify raw-body signature before parsing.
+- Durable receipt before asynchronous normalization.
+- Dedupe by `(workspaceId, providerConnectionId, externalCallEventId)` where an event ID exists; otherwise use a bounded canonical hash with collision-safe fields.
+- Resolve by WABA + phone number + workspace/provider asset. Never route by GHL contact ID alone.
+- Preserve raw Meta call state separately from canonical state.
+- Accept duplicate and out-of-order events; reconcile after interruption.
+- Do not mark connected, ended, duration, or recording until Meta/WebRTC evidence supports it.
+
+## Business-initiated call flow
+
+Business-initiated calling is a separate eligibility and permission flow:
+
+1. Confirm exact number readiness and `canBusinessInitiateCall`.
+2. Confirm the user/contact permission state and any expiry/revocation rules required by the current Meta Calling API contract.
+3. Do not show an outbound Call action when permission, country, number settings, account status, or capability evidence is missing.
+4. Create one idempotent canonical `CallSession` and retain the internal Meta call reference.
+5. Invoke the documented phone-number Calling API action through the server-side Graph client.
+6. Process the Call Connect webhook and SDP answer, then establish the approved WebRTC media connection.
+7. Normalize ringing/connected/terminal evidence and reconcile duplicates, retries, rejected calls, and no-answer timeouts.
+
+The POC must verify the exact permission request, permission status, expiry/revocation, unanswered/rejected restrictions, Graph payload, callback/webhook sequence, caller identity, and idempotency behavior. Until those tests pass, `canBusinessInitiateCall` remains false.
+
+## Fallback provider role
+
+Telnyx, Twilio, Vonage, Plivo, and Agora/SIP research remains useful only for:
+
+- PSTN fallback;
+- SIP/BYOC or PBX interoperability;
+- non-WhatsApp telephony;
+- enterprise call-center/media integrations;
+- cases where Meta account/country/number eligibility is unavailable.
+
+They are not the default primary architecture for WhatsApp calls. Any fallback must preserve the same provider-neutral CallSession and exact workspace/number/provider routing contract.
+
+## GHL external-call mapping
+
+A native Meta call should be represented in GHL as an external WhatsApp call activity unless an official GHL native telephony contract is separately verified. Preserve:
+
+- canonical `callSessionId`;
+- internal Meta provider identity and external call reference;
+- exact workspace, contact, and WhatsApp number;
+- direction, agent, start/ringing/connect/end timestamps, duration, and canonical status;
+- raw Meta status where appropriate;
+- opaque recording reference and consent/access state.
+
+Never label Meta WhatsApp Calling as native HighLevel telephony, and never infer sender/calling context from a GHL contact ID alone.
+
+## Current #51 gate
+
+#51 remains **blocked**. The Meta POC must prove at minimum:
+
+- test or production Cloud API number binding;
+- WABA/app subscription and `calls` webhook delivery;
+- calling settings and permission evidence;
+- one inbound audio call;
+- business-initiated audio call where the number/account is eligible;
+- WebRTC SDP/ICE connection;
+- microphone, mute, speaker, Bluetooth/audio routing;
+- Android foreground and supported background/terminated behavior;
+- reject, no-answer, timeout, network interruption, reconnect, duplicate, and out-of-order handling;
+- exact multi-number tenant isolation;
+- no client secret or long-lived credential exposure;
+- CallSession persistence and GHL external-call fixture;
+- owner approval that #51 is unblocked.
+
+Until all hard gates and explicit owner approval exist, do not implement #55.
