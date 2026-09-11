@@ -1,13 +1,13 @@
 # HighLevel one-number private pilot
 
-This runbook is for a private development pilot only. Do not use production credentials or a permanent public endpoint.
+This runbook is for a private development pilot only. Use the owner's permanent Cloudflare-managed hostname and a named Cloudflare Tunnel. Do not use production credentials in local development and never commit secrets.
 
 ## Windows startup
 
 From PowerShell:
 
 ```powershell
-git switch main
+git switch feat/ghl-private-pilot
 git pull --ff-only
 npm ci
 Copy-Item .env.example .env
@@ -21,33 +21,54 @@ npm run db:migrate
 npm start
 ```
 
-The verified default backend port is `3131`; `PORT` overrides it. Confirm health locally:
+The verified default backend port is `3131`; `PORT` overrides it. Confirm the configured port and health locally:
 
 ```powershell
-Invoke-WebRequest http://localhost:$env:PORT/api/health
-# If PORT is unset, use:
-Invoke-WebRequest http://localhost:3131/api/health
+$port = if ($env:PORT) { $env:PORT } else { '3131' }
+Invoke-WebRequest "http://localhost:$port/api/health"
 ```
 
-## Temporary Cloudflare tunnel
+## Permanent Cloudflare Named Tunnel
 
-Install `cloudflared`, then use the actual configured port:
+Authenticate the local machine to the owner's Cloudflare account:
 
 ```powershell
-cloudflared tunnel --url http://localhost:3131
-# Or, when PORT is set:
-cloudflared tunnel --url http://localhost:$env:PORT
+cloudflared tunnel login
+cloudflared tunnel create wa-client-hub-ghl
 ```
 
-Quick Tunnel hostnames are temporary and development/private-pilot-only. Do not hard-code the generated hostname.
+Create a DNS route for the permanent hostname:
 
-Configure the generated HTTPS host in the private Marketplace app as:
+```powershell
+cloudflared tunnel route dns wa-client-hub-ghl <permanent-ghl-host>
+```
+
+Create `%USERPROFILE%\\.cloudflared\\config.yml` locally. Do not commit this file or its credentials:
+
+```yaml
+tunnel: <tunnel-uuid>
+credentials-file: C:\\Users\\<windows-user>\\.cloudflared\\<tunnel-uuid>.json
+ingress:
+  - hostname: <permanent-ghl-host>
+    service: http://localhost:3131
+  - service: http_status:404
+```
+
+If `PORT` is overridden, use that value instead of `3131` in the `service` line. Start the named tunnel:
+
+```powershell
+cloudflared tunnel run wa-client-hub-ghl
+```
+
+Configure the same permanent HTTPS host in the private HighLevel Marketplace app:
 
 ```text
-https://<temporary-host>/oauth/highlevel/callback
-https://<temporary-host>/webhooks/ghl/events
-https://<temporary-host>/webhooks/ghl/messages
+https://<permanent-ghl-host>/oauth/highlevel/callback
+https://<permanent-ghl-host>/webhooks/ghl/events
+https://<permanent-ghl-host>/webhooks/ghl/messages
 ```
+
+These URLs are stable only while the named tunnel, DNS route, and local backend remain configured. Do not use a random `trycloudflare.com` hostname as the primary pilot design. A Quick Tunnel may be used only as an emergency developer fallback and must not be registered as the production/private-pilot callback.
 
 ## Pilot sequence
 
@@ -55,9 +76,9 @@ https://<temporary-host>/webhooks/ghl/messages
 2. Complete OAuth and bind the installation/location to one workspace.
 3. Map exactly one WhatsApp number and its exact provider connection through `/api/ghl/mappings`.
 4. Send one GHL message and confirm the canonical send path resolves that mapped number.
-5. Send one WhatsApp inbound message and use the inbound service hook to deliver it to the mapped GHL conversation.
+5. Send one WhatsApp inbound message and confirm the Meta/YCloud processing hook delivers it to the mapped GHL conversation.
 6. Replay the webhook and confirm the correlation uniqueness constraint prevents duplication.
 7. Test an unknown location, wrong workspace, wrong number, and provider mismatch; each must fail closed.
 8. Confirm correlation rows contain GHL, canonical, provider, workspace, location, and number identifiers.
 
-Broad delivered/read/failed propagation remains the separate #46 boundary; this pilot stores those correlation statuses for the next status-sync extension.
+Broad delivered/read/failed propagation remains the separate #46 boundary; this pilot stores those correlation states for the next status-sync extension.
