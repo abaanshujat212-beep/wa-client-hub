@@ -41,7 +41,7 @@ test('multipart parser handles fields, binary file data, and chunk-split boundar
 test('multipart parser spills large file parts to disk and cleans them up', async () => {
   const boundary = 'meta-spill';
   const data = Buffer.from('1234567890');
-  const body = Buffer.concat([Buffer.from(`--${boundary}\r\n${file('upload', 'x.txt', '', 'text/plain')}\r\n--${boundary}--\r\n`), data]);
+  const body = Buffer.concat([Buffer.from(`--${boundary}\r\n${file('upload', 'x.txt', '')}`), data, Buffer.from(`\r\n--${boundary}--\r\n`)]);
   const result = await parseMetaMediaMultipart(Readable.from([body]), `multipart/form-data; boundary=${boundary}`, { fileMemoryBytes: 4 });
   assert.equal(result.files[0].data, undefined);
   assert.equal(result.files[0].sizeBytes, data.length);
