@@ -1,4 +1,4 @@
-# ADR-002: Provider-agnostic calling pilot gate and contract
+# ADR-002: Meta-native WhatsApp Calling gate and provider-neutral contract
 
 - Status: **Proposed / blocked pending #51 approval**
 - Date: 2026-09-11
@@ -9,22 +9,56 @@
 
 ## Decision status
 
-No calling implementation is authorized by this ADR. Issue #51 remains blocked because owner-approved weights, owner-approved provider/fallback, written vendor confirmation, live/sandbox Pakistan evidence, Android POC evidence, CDR/cost reconciliation, and explicit owner approval are not present.
+Meta WhatsApp Business Calling API is the **primary proposed native calling path** for WA Client Hub. Telnyx, Twilio, Vonage, Plivo, and Agora/SIP remain fallback or adjacent PSTN/SIP/non-WhatsApp options only.
 
-The provisional research recommendation is:
+This ADR authorizes research and a bounded Meta Calling POC, not production calling. No #55 implementation, call API, mobile engine, SIP service, migration, or production calling flag is authorized. #51 remains blocked until the hard gates below pass and the owner explicitly comments that #51 is approved/unblocked.
 
-- Primary POC candidate: **Telnyx**.
-- Fallback candidate: **Twilio**.
-- Rejected for the Android MVP unless facts change: **Plivo native mobile SDK**, because the current official notice says it is unsupported.
-- Not standalone PSTN: **Agora**, unless paired with an approved SIP/PSTN carrier.
+Meta-specific call IDs, WABA IDs, phone-number IDs, webhook IDs, SDP, SIP credentials, access tokens, and raw provider states remain internal. Public clients receive canonical WA Client Hub identifiers only.
 
-This is a recommendation to run a POC, not a provider selection or production approval.
+## Existing repository foundation and reuse boundary
 
-## Provider-neutral public contract
+The current Meta messaging integration already has:
 
-Provider IDs, call IDs, tokens, account IDs, SIP credentials, recording URLs, and raw states are internal. Public clients receive only canonical WA Client Hub identifiers.
+- Embedded Signup with server-side code exchange and WABA/phone verification;
+- encrypted `provider_connections` credentials and exact `meta_connection_assets` records;
+- exact workspace, WABA, phone-number, Meta connection, and canonical-number routing;
+- versioned `MetaGraphClient` transport with timeout and bounded retry;
+- raw-body HMAC webhook verification and challenge handling;
+- durable webhook receipt, deduplication, retry, dead-letter, and worker processing;
+- lifecycle/diagnostics, activation, template, and media surfaces.
 
-### Canonical CallSession
+Calling must reuse these components. It must not create a second Meta connection, number, vault, or webhook security model.
+
+Current gaps are intentional: message normalization does not handle `calls`, diagnostics do not yet retrieve Calling settings, and `call_events` is only preliminary metadata. Those gaps are POC deliverables, not permission to implement #55 in this ADR.
+
+## Architecture decision
+
+### MVP: Graph API + Webhooks + WebRTC
+
+- **Signaling:** Meta `calls` webhooks and documented Calling API Graph actions on the exact phone-number ID.
+- **Media:** WebRTC using Meta's documented SDP/ICE flow; default audio is OPUS, with other codecs only when the tested capability document confirms them.
+- **Backend:** verify raw webhooks, durably receipt them, resolve the exact asset, normalize idempotently, authorize Graph actions, persist raw observations and canonical state, reconcile late events, and enforce tenant/RBAC/spend controls.
+- **Client:** a later approved browser/React Native surface owns the peer connection, microphone permission, mute, speaker, Bluetooth/audio route, reconnect, and teardown. It receives only short-lived or opaque authorization.
+- **NAT/ICE:** ICE is required. STUN/TURN behavior must be tested; production should plan TURN for restrictive networks rather than assuming direct connectivity.
+- **Background:** Android foreground, background, and terminated-app behavior are hard POC acceptance items. Messaging webhook delivery is not evidence of incoming-call UX support.
+- **Scale:** reuse one Meta connection/webhook plane, add a separate calling normalization/worker layer, and apply workspace/number concurrency and spend limits.
+- **Recording:** not in MVP. Any later recording must be consented, retention/deletion governed, access-audited, and represented only by an opaque reference.
+- **Compatibility:** this option matches the current encrypted Meta Cloud API, exact-number routing, Graph client, and webhook foundations.
+
+### Later option: SIP-based WhatsApp Calling
+
+- **Signaling:** SIP over TLS to the configured SIP endpoint; Meta requires explicit SIP enablement instead of default Graph/Webhook signaling.
+- **Media:** WebRTC through the SIP architecture or explicitly approved SDES/SRTP mode.
+- **Backend:** operate/integrate a SIP edge or PBX, protect SIP credentials, map dialogs to canonical sessions, handle authentication and reconciliation, and monitor RTP/SRTP/NAT behavior.
+- **Client:** connects to the controlled PBX/media service or a WebRTC gateway; audio permissions and route controls remain client responsibilities.
+- **NAT/ICE:** WebRTC still needs ICE/STUN/TURN; SIP adds TLS, RTP/SRTP, firewall, codec, port-range, and registration operations.
+- **Authentication:** Meta SIP settings plus connection-scoped SIP/PBX credentials, never mobile secrets.
+- **Events:** correlate SIP dialogs and Meta events through internal provider identity; never expose SIP/Meta call IDs as public IDs.
+- **Background/scale:** depends on the PBX, push strategy, and client; it is more operationally complex but useful for PBX, queues, enterprise routing, and server-side media.
+- **Recording:** potentially easier in a controlled media plane, but still subject to consent and retention rules.
+- **Decision:** defer until an enterprise PBX/SIP requirement or a failed WebRTC POC justifies it.
+
+## Canonical public CallSession
 
 ```json
 {
@@ -32,153 +66,157 @@ Provider IDs, call IDs, tokens, account IDs, SIP credentials, recording URLs, an
   "workspaceId": "workspace-id",
   "contactId": "contact-id",
   "agentId": "agent-id",
-  "direction": "outbound",
+  "whatsappNumberId": "canonical-number-id",
+  "direction": "inbound",
   "mediaKind": "voice",
   "state": "initiated",
   "startedAt": "2026-09-11T00:00:00.000Z",
+  "ringingAt": null,
   "connectedAt": null,
   "endedAt": null,
   "durationSeconds": null,
-  "provider": "telnyx",
+  "provider": "meta",
+  "providerConnectionId": "internal-connection-id",
   "recording": null
 }
 ```
 
-`callSessionId` is generated by WA Client Hub and never changes when the provider changes. `provider` is a non-secret display/provider identity; provider account IDs and call IDs stay in an internal provider-identity record.
+Meta call IDs, webhook IDs, WABA/phone IDs, SDP, SIP references, raw payloads, permission tokens, and credential material remain in internal provider-identity/raw-event records. `callSessionId` never changes if a fallback provider is later used.
 
-The future API must never accept a provider ID as the public call/session ID and must never infer workspace, contact, agent, number, or provider from a first row.
+The future public API must never accept a provider ID as the public session ID and must never infer workspace, contact, agent, number, or provider from the first row or contact ID alone.
 
-### Adapter capabilities
+## Evidence-driven canonical states
 
-The adapter exposes a capability document before actions are enabled:
+Allowed states are a contract target, not an implementation in this PR:
+
+- `initiated`
+- `permission_required`
+- `permission_requested`
+- `permission_granted`
+- `queued`
+- `ringing`
+- `connected`
+- `ended` / `completed`
+- `busy`
+- `rejected`
+- `no_answer`
+- `canceled`
+- `failed`
+- `missed`
+
+Only observed Meta/WebRTC/SIP evidence may create a transition. Raw provider state is stored separately. Do not invent `ringing`, `connected`, `ended`, duration, recording, or permission state from a message event or a contact row. Terminal state is not overwritten by a late non-authoritative event; authoritative reconciliation records a correction observation.
+
+## User-initiated calling flow
+
+```text
+WhatsApp user
+  → calls business Cloud API number
+  → Meta calls webhook
+  → raw receipt and signature verification
+  → exact WABA + phone → workspace + number + Meta connection
+  → canonical CallSession
+  → approved WebRTC offer/answer handling
+  → accept/reject/timeout/end/missed evidence
+  → agent/browser/mobile surface
+```
+
+The POC must capture redacted fixtures for the actual call-created/connect/terminate and error events emitted by the selected Meta configuration. The current message normalizer must not be reused as a call normalizer by analogy.
+
+For user-initiated calls:
+
+- subscribe to the `calls` webhook field unless the approved SIP design uses its documented subscription model;
+- verify raw signature and persist before asynchronous normalization;
+- deduplicate by workspace, exact provider connection, and external event identity where available;
+- resolve by WABA and phone number, never by GHL contact ID alone;
+- handle SDP/ICE, ringing, accept/reject/end, timeout, duplicate, replay, out-of-order, reconnect, and reconciliation evidence;
+- expose the exact Sales/Support number context to the agent.
+
+## Business-initiated calling flow
+
+The future outbound action is gated by real Meta eligibility, not UI optimism:
+
+1. Verify exact number readiness and `canBusinessInitiateCall=true`.
+2. Verify contact permission state, expiry, revocation, unanswered/rejected restrictions, country eligibility, and account quality restrictions.
+3. Do not render or enable a Call button while any required capability is unknown or false.
+4. Create one idempotent canonical session and retain the internal Meta call reference.
+5. Invoke the documented Calling API Graph action from the server-side Graph client.
+6. Process the Call Connect webhook and SDP answer, then establish the approved WebRTC connection.
+7. Normalize ringing/connected/terminal evidence and reconcile retries, rejection, no-answer, and network interruption.
+
+The POC must establish the exact permission request/status/revocation contract, Graph request payloads and action names, webhook sequence, caller identity, idempotency behavior, per-user limits, and expiry. Until proven, `canBusinessInitiateCall` is false.
+
+## Provider-neutral eligibility representation
+
+The readiness object is per exact connected WhatsApp number and must contain status/reasons only:
 
 ```json
 {
-  "provider": "telnyx",
-  "directions": ["outbound", "inbound"],
-  "mediaKinds": ["voice"],
-  "actions": ["create", "cancel", "end", "mute", "unmute"],
-  "incomingBackground": "provider-confirmed",
-  "recording": "provider-confirmed",
-  "sip": "provider-confirmed",
-  "regions": ["provider-confirmed"]
+  "provider": "meta",
+  "workspaceId": "internal-workspace-id",
+  "whatsappNumberId": "internal-number-id",
+  "providerConnectionId": "internal-connection-id",
+  "mode": "graph_webrtc",
+  "cloudApiNumber": "unknown",
+  "wabaBinding": "unknown",
+  "appBinding": "unknown",
+  "messagingPermission": "unknown",
+  "callsWebhook": "unknown",
+  "callingEnabled": "unknown",
+  "callIconVisibility": "unknown",
+  "callHours": "unknown",
+  "callbackRequestSettings": "unknown",
+  "productionThreshold": "unknown",
+  "countryEligibility": "unknown",
+  "businessInitiatedEligible": "unknown",
+  "inboundEligible": "unknown",
+  "accountRestrictions": "unknown",
+  "testOrProduction": "unknown",
+  "canReceiveCalls": false,
+  "canBusinessInitiateCall": false,
+  "blockingReasons": ["not_checked"]
 }
 ```
 
-The canonical API exposes only actions supported by the approved capability document. `speaker` is a local Android audio-route action unless a provider explicitly requires otherwise. `answer` is exposed only when incoming calls and answer control are proven by the selected provider/SDK.
+Required checks include Cloud API versus WhatsApp Business App, exact WABA/app, app-to-WABA subscription, `whatsapp_business_messaging`, `calls` subscription, phone-number Calling settings, call icon, calling hours, callback request settings, production/test threshold, country, inbound enablement, business-initiated availability, account restrictions, and test/production mode.
 
-Provider adapter methods are conceptually:
+This is a documentation contract only. Current diagnostics do not yet implement Calling settings; adding those fields requires verified Meta responses and a narrowly scoped follow-up.
 
-- `discoverCapabilities()`
-- `createCall(input, idempotencyKey)`
-- `cancelCall(providerCallRef)`
-- `answerCall(providerCallRef)` when supported
-- `endCall(providerCallRef)`
-- `setMute(providerCallRef, muted)` when supported
-- `reconcile(providerCallRef or time window)`
-- `getRecording(providerRecordingRef)` and `deleteRecording(providerRecordingRef)` when supported and authorized
+## Webhook and reconciliation rules
 
-All methods require an already-authorized exact workspace/provider binding. No method may select a first provider, first number, or first contact.
-
-## Canonical state machine
-
-Canonical state is derived from observed provider events and reconciliation; raw provider state is stored separately.
-
-| Canonical state | Allowed evidence / transitions |
-|---|---|
-| `initiated` | Call creation accepted locally/provider-side; no ringing/connection claim |
-| `queued` | Provider explicitly reports queued/accepted queue state |
-| `ringing` | Provider explicitly reports ringing/alerting |
-| `connected` | Provider/SDK explicitly reports answered/connected |
-| `ended` / `completed` | Provider/SDK or authoritative CDR reports completion with end timestamp |
-| `busy` | Provider explicitly reports busy |
-| `no_answer` | Provider explicitly reports no-answer/timeout |
-| `canceled` | Authorized cancel succeeds or provider reports cancellation before connection |
-| `failed` | Provider reports failure or reconciliation confirms terminal failure |
-| `missed` | Only for an incoming call with evidence that it alerted and ended without answer |
-
-Unknown provider states remain raw provider details and map only to the safest known canonical state. Do not invent `connected`, `ended`, duration, or recording data. Duration is computed only from observed `connectedAt` and `endedAt`.
-
-A terminal canonical state is not overwritten by a late non-authoritative event. A later authoritative reconciliation may add a correction event, preserving the original raw receipt and audit trail.
-
-## Events, webhooks, and source of truth
-
-- Persist the exact raw webhook body, provider connection, signature result, provider event ID, received timestamp, and processing status before asynchronous normalization.
-- Verify signatures over the exact raw body using the provider-specific documented algorithm and connection-scoped secret/key.
-- Require HTTPS, bounded bodies, timestamp/replay validation where the provider supports it, constant-time comparisons, and provider-specific key rotation.
-- Deduplicate by `(workspaceId, providerConnectionId, providerEventId)`; never deduplicate globally by a provider call ID alone.
-- Return success only after durable receipt. Processing is asynchronous and retryable.
-- Preserve `occurredAt`, `receivedAt`, provider sequence/version where available, and raw state.
-- Accept duplicate and out-of-order events. State transitions must converge through a monotonic event/reconciliation policy.
-- Provider event/authoritative CDR is the source for provider call facts. PostgreSQL is the canonical application source after verified ingestion. Redis/realtime is transport only.
-- Reconciliation runs after app/network interruption and for unresolved/late calls. It must be bounded, idempotent, and audited.
-- No event may cross workspace/contact/agent/provider ownership boundaries.
-
-## Idempotency and races
-
-- Call creation accepts a client idempotency key scoped to `(workspaceId, authorizedAgentId, key)`.
-- A repeated create returns the existing canonical `callSessionId` and does not create a second provider call.
-- Cancel/end are idempotent and race-safe. The first authoritative terminal result wins; later results are recorded as observations.
-- Provider idempotency keys, if supported, are stored separately from the canonical key.
-- Retry queues use bounded attempts, backoff, dead-letter state, and operator replay with audit events.
-
-## Security, privacy, fraud, and spend
-
-- Provider credentials and access tokens are backend-only and envelope-encrypted.
-- Mobile receives short-lived, capability-scoped tokens or opaque backend authorization; no provider secret is bundled.
-- Every action checks workspace membership/RBAC, agent authorization, contact visibility, exact provider/number ownership, and call-session ownership.
-- Rate limits apply per actor, workspace, device, destination, provider connection, and concurrency window.
-- Spend limits include daily/monthly workspace caps, per-agent caps, per-destination caps, maximum call duration, and kill switches.
-- Detect abnormal destination velocity, repeated failures, suspicious geography, caller-ID anomalies, and concurrent-device misuse.
-- Redact tokens, provider credentials, full phone numbers where logs do not require them, and recording URLs from logs and client events.
-- Recording is disabled by default. Enable only after consent, jurisdiction, retention, deletion, legal-hold, and access policy are approved. Store only an opaque external recording reference in the canonical record.
-- Emergency calling is not promised unless the selected provider and deployment explicitly support and approve it.
-
-## Recording, transcription, and summaries
-
-Recordings/transcripts/summaries are optional external references, not canonical call payloads. The canonical model stores:
-
-- recording provider identity/reference;
-- consent/policy reference;
-- availability and deletion state;
-- retention/deletion timestamps;
-- transcript/summary reference and provenance;
-- human-review status where applicable.
-
-No permanent public recording URL is exposed. Retrieval is authorized, time-limited, audited, and provider-specific.
+- Extend the existing Meta webhook receiver with a separate calling service/normalizer behind the same raw-body, signature-verified route.
+- Store exact raw body, signature result, provider connection, WABA/phone binding, event identity, received time, and processing status before normalization.
+- Deduplicate by `(workspaceId, providerConnectionId, externalCallEventId)` where available; otherwise use a bounded collision-safe hash.
+- ACK only after durable receipt. Processing is retryable and dead-lettered.
+- Accept duplicates and out-of-order events; canonical transitions must converge.
+- Reject unknown/ambiguous assets. There is no first-number or cross-workspace fallback.
+- Reconcile after application/network interruption and preserve raw and canonical audit history.
 
 ## GHL external-call mapping
 
-Calls are an external WA Client Hub source unless a separate verified native HighLevel telephony contract is approved. The future GHL mapping must preserve:
+Treat Meta calls as an external WhatsApp call activity unless an official native HighLevel telephony contract is separately verified. Preserve canonical session ID, internal Meta identity, exact workspace/contact/number, direction, agent, timestamps, duration, canonical/raw status, and opaque recording reference. Do not label Meta calling as native HighLevel telephony and do not route by GHL contact ID alone.
 
-- canonical `callSessionId`;
-- internal provider identity and external provider call reference;
-- exact workspace and contact mapping;
-- direction and source;
-- observed start/connect/end timestamps and derived duration;
-- canonical and raw provider status;
-- authorized agent identity;
-- opaque recording reference and consent/access state.
+## Security and media requirements
 
-GHL sync must not label Telnyx, Twilio, Vonage, Plivo, Agora, or a SIP carrier as native HighLevel telephony. It must use the existing exact installation/location/workspace/provider routing model and fail closed on ambiguity.
+- Meta credentials remain server-side and envelope-encrypted.
+- Mobile/browser receives only short-lived or opaque authorization.
+- WebRTC offer/answer, ICE, TURN, microphone permission, mute, speaker, Bluetooth route, device switching, reconnect, and teardown require a physical/client POC.
+- Plan TURN for production reliability; do not assume direct ICE works across enterprise/mobile networks.
+- Recording is disabled for MVP. If enabled later, require consent, jurisdiction, retention, deletion, access authorization, and audit.
+- Enforce workspace/RBAC/number ownership, rate/concurrency/spend controls, idempotency, replay protection, and fraud monitoring.
 
 ## Mandatory gate before #55
 
-The following must be attached to #51 and approved by the owner before a #55 implementation branch is created:
+1. Meta Cloud API test/production number and exact WABA/app binding confirmed.
+2. `calls` webhook delivery and raw signature verification pass.
+3. Calling phone-number settings, call icon, hours, callback settings, permission, and account status are captured.
+4. One inbound audio call succeeds.
+5. One business-initiated audio call succeeds where the account/number is eligible.
+6. WebRTC SDP/ICE connection succeeds; TURN behavior is tested or explicitly ruled out for the target network.
+7. Foreground, background/terminated, microphone, mute, speaker, Bluetooth, reconnect, and teardown behavior are tested.
+8. Reject, no-answer, timeout, duplicate, replay, out-of-order, and network interruption behavior converges.
+9. Exact multi-number tenant isolation is proven.
+10. No Meta secret or long-lived credential is exposed to a client.
+11. CallSession persistence and GHL external-call fixture are verified.
+12. Owner explicitly comments that #51 is `approved/unblocked`.
 
-1. Owner-approved matrix weights and usage assumptions.
-2. Owner-approved primary provider and fallback.
-3. Written vendor answers for Pakistan commercial/KYC/caller-ID/inbound requirements.
-4. Live/sandbox number inventory and account eligibility.
-5. Outbound tests to representative Pakistan fixed/mobile networks.
-6. Inbound tests where supported.
-7. Caller-ID validation.
-8. React Native Android physical-device POC covering foreground, background/terminated, mute, speaker, reconnect, and end.
-9. Signed webhook, replay, duplicate, retry, and out-of-order tests.
-10. Consented recording retrieval/deletion test, if recording is in scope.
-11. CDR/invoice reconciliation.
-12. Tenant/device isolation and fraud/spend-limit tests.
-13. This ADR linked from #51.
-14. Explicit owner comment marking #51 `approved/unblocked`.
-
-Until item 14 exists, #55 is intentionally blocked.
+Until item 12 exists, #55 remains blocked and no calling implementation branch may be created.
