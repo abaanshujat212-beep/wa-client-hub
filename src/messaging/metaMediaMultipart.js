@@ -1,9 +1,13 @@
 const { createHash } = require('node:crypto');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 
 const DEFAULT_MAX_BYTES = 110 * 1024 * 1024;
 const DEFAULT_MAX_PART_BYTES = 100 * 1024 * 1024;
 const DEFAULT_MAX_HEADER_BYTES = 16 * 1024;
 const DEFAULT_MAX_PARTS = 10;
+const DEFAULT_FILE_MEMORY_BYTES = 8 * 1024 * 1024;
 
 class MetaMediaMultipartError extends Error {
   constructor(code, message = 'Multipart media request is invalid') {
@@ -40,12 +44,36 @@ function headersFromBlock(block) {
   return { name, filename: filenameMatch ? filenameMatch[1] : null, contentType: headers['content-type'] || 'text/plain' };
 }
 
-function appendPart(part, chunk, maxPartBytes) {
+function writeAll(fd, chunk) {
+  let offset = 0;
+  while (offset < chunk.length) offset += fs.writeSync(fd, chunk, offset);
+}
+
+function createSpill(storage) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'wa-meta-media-'));
+  const filePath = path.join(directory, 'part.bin');
+  const fd = fs.openSync(filePath, 'w');
+  storage.directories.add(directory);
+  storage.paths.add(filePath);
+  storage.descriptors.add(fd);
+  return { directory, filePath, fd };
+}
+
+function appendPart(part, chunk, maxPartBytes, storage) {
   if (!chunk.length) return;
-  part.size += chunk.length;
-  if (part.size > maxPartBytes) throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_PART_TOO_LARGE');
+  const nextSize = part.size + chunk.length;
+  if (nextSize > maxPartBytes) throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_PART_TOO_LARGE');
+  if (part.meta.filename !== null && !part.filePath && nextSize > storage.fileMemoryBytes) {
+    const spill = createSpill(storage);
+    for (const previous of part.chunks) writeAll(spill.fd, previous);
+    part.chunks = null;
+    part.filePath = spill.filePath;
+    part.fd = spill.fd;
+  }
+  part.size = nextSize;
   part.hash.update(chunk);
-  part.chunks.push(Buffer.from(chunk));
+  if (part.filePath) writeAll(part.fd, chunk);
+  else part.chunks.push(Buffer.from(chunk));
 }
 
 async function parseMetaMediaMultipart(stream, contentType, options = {}) {
@@ -55,13 +83,31 @@ async function parseMetaMediaMultipart(stream, contentType, options = {}) {
   const maxPartBytes = Number(options.maxPartBytes ?? DEFAULT_MAX_PART_BYTES);
   const maxHeaderBytes = Number(options.maxHeaderBytes ?? DEFAULT_MAX_HEADER_BYTES);
   const maxParts = Number(options.maxParts ?? DEFAULT_MAX_PARTS);
+  const fileMemoryBytes = Number(options.fileMemoryBytes ?? DEFAULT_FILE_MEMORY_BYTES);
   const maxPartBytesFor = options.maxPartBytesFor === undefined ? () => maxPartBytes : options.maxPartBytesFor;
-  if (typeof maxPartBytesFor !== 'function' || ![maxBytes, maxPartBytes, maxHeaderBytes, maxParts].every(Number.isSafeInteger) || maxBytes < 1 || maxPartBytes < 1 || maxHeaderBytes < 1 || maxParts < 1) throw new TypeError('Multipart limits are invalid');
+  if (typeof maxPartBytesFor !== 'function' || ![maxBytes, maxPartBytes, maxHeaderBytes, maxParts].every(Number.isSafeInteger) || !Number.isSafeInteger(fileMemoryBytes) || maxBytes < 1 || maxPartBytes < 1 || maxHeaderBytes < 1 || maxParts < 1 || fileMemoryBytes < 0) throw new TypeError('Multipart limits are invalid');
   const opening = Buffer.from(`--${boundary}`);
   const marker = Buffer.from(`\r\n--${boundary}`);
   let buffer = Buffer.alloc(0); let total = 0; let state = 'opening'; let current = null; let ended = false; const parts = [];
+  const storage = { fileMemoryBytes, paths: new Set(), directories: new Set(), descriptors: new Set(), cleaned: false };
+  const cleanup = () => {
+    if (storage.cleaned) return;
+    storage.cleaned = true;
+    for (const fd of storage.descriptors) { try { fs.closeSync(fd); } catch {} }
+    for (const filePath of storage.paths) { try { fs.unlinkSync(filePath); } catch {} }
+    for (const directory of storage.directories) { try { fs.rmdirSync(directory); } catch {} }
+  };
   const currentLimit = () => { let limit; try { limit = Number(maxPartBytesFor(current.meta)); } catch { throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_LIMIT_INVALID'); } if (!Number.isSafeInteger(limit) || limit < 1 || limit > maxPartBytes) throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_LIMIT_INVALID'); return limit; };
-  const finishPart = () => { if (!current) throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_STATE_INVALID'); parts.push({ ...current.meta, data: Buffer.concat(current.chunks), sizeBytes: current.size, sha256: current.hash.digest('hex') }); if (parts.length > maxParts) throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_TOO_MANY_PARTS'); current = null; };
+  const finishPart = () => {
+    if (!current) throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_STATE_INVALID');
+    if (current.fd !== undefined) { fs.closeSync(current.fd); storage.descriptors.delete(current.fd); current.fd = undefined; }
+    const result = { ...current.meta, sizeBytes: current.size, sha256: current.hash.digest('hex') };
+    if (current.filePath) result.filePath = current.filePath;
+    else result.data = Buffer.concat(current.chunks);
+    parts.push(result);
+    if (parts.length > maxParts) throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_TOO_MANY_PARTS');
+    current = null;
+  };
   const process = () => {
     while (true) {
       if (state === 'done') return;
@@ -83,8 +129,8 @@ async function parseMetaMediaMultipart(stream, contentType, options = {}) {
       }
       if (state === 'body') {
         const index = buffer.indexOf(marker);
-        if (index < 0) { const keep = Math.min(buffer.length, marker.length); appendPart(current, buffer.subarray(0, buffer.length - keep), currentLimit()); buffer = buffer.subarray(buffer.length - keep); return; }
-        appendPart(current, buffer.subarray(0, index), currentLimit()); buffer = buffer.subarray(index + marker.length); finishPart(); state = 'boundarySuffix';
+        if (index < 0) { const keep = Math.min(buffer.length, marker.length); appendPart(current, buffer.subarray(0, buffer.length - keep), currentLimit(), storage); buffer = buffer.subarray(buffer.length - keep); return; }
+        appendPart(current, buffer.subarray(0, index), currentLimit(), storage); buffer = buffer.subarray(index + marker.length); finishPart(); state = 'boundarySuffix';
       }
       if (state === 'boundarySuffix') {
         if (buffer.length < 2) return;
@@ -94,11 +140,13 @@ async function parseMetaMediaMultipart(stream, contentType, options = {}) {
       }
     }
   };
-  for await (const chunk of stream) { const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk); total += value.length; if (total > maxBytes) throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_TOO_LARGE'); buffer = Buffer.concat([buffer, value]); process(); }
-  process(); if (!ended || state !== 'done') throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_TRUNCATED');
-  const fields = {}; const files = [];
-  for (const part of parts) { if (part.filename !== null) files.push(part); else if (fields[part.name] === undefined) fields[part.name] = part.data.toString('utf8'); else if (Array.isArray(fields[part.name])) fields[part.name].push(part.data.toString('utf8')); else fields[part.name] = [fields[part.name], part.data.toString('utf8')]; }
-  return { fields, files, totalBytes: total };
+  try {
+    for await (const chunk of stream) { const value = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk); total += value.length; if (total > maxBytes) throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_TOO_LARGE'); buffer = Buffer.concat([buffer, value]); process(); }
+    process(); if (!ended || state !== 'done') throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_TRUNCATED');
+    const fields = {}; const files = [];
+    for (const part of parts) { if (part.filename !== null) files.push(part); else if (fields[part.name] === undefined) fields[part.name] = part.data.toString('utf8'); else if (Array.isArray(fields[part.name])) fields[part.name].push(part.data.toString('utf8')); else fields[part.name] = [fields[part.name], part.data.toString('utf8')]; }
+    return { fields, files, totalBytes: total, cleanup };
+  } catch (error) { cleanup(); throw error; }
 }
 
-module.exports = { MetaMediaMultipartError, boundaryFromContentType, parseMetaMediaMultipart, DEFAULT_MAX_BYTES, DEFAULT_MAX_PART_BYTES };
+module.exports = { MetaMediaMultipartError, boundaryFromContentType, parseMetaMediaMultipart, DEFAULT_MAX_BYTES, DEFAULT_MAX_PART_BYTES, DEFAULT_FILE_MEMORY_BYTES };

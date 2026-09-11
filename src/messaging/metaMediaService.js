@@ -1,4 +1,5 @@
 const crypto = require('node:crypto');
+const fs = require('node:fs');
 const { validPath } = require('./metaGraphClient');
 
 const MEDIA_LIMITS = Object.freeze({ image: 5 * 1024 * 1024, audio: 16 * 1024 * 1024, video: 16 * 1024 * 1024, document: 100 * 1024 * 1024 });
@@ -47,6 +48,20 @@ function normalizeUpload(input = {}, limits = MEDIA_LIMITS) {
   return { phoneNumberId, mimeType, mediaType, filename, bytes, sizeBytes: bytes.length, sha256 };
 }
 
+function normalizeFileUpload(input = {}, limits = MEDIA_LIMITS) {
+  const phoneNumberId = boundedId(input.phoneNumberId, 'META_MEDIA_NUMBER_INVALID');
+  const mimeType = String(input.mimeType || '').trim().toLowerCase();
+  const mediaType = MIME_TYPES.get(mimeType);
+  const filename = String(input.filename || '').trim();
+  const filePath = String(input.filePath || '');
+  const sizeBytes = Number(input.sizeBytes);
+  const sha256 = String(input.sha256 || '').trim().toLowerCase();
+  if (!mediaType || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(filename) || !filePath || !require('node:path').isAbsolute(filePath) || !Number.isSafeInteger(sizeBytes) || sizeBytes < 1 || !/^[a-f0-9]{64}$/.test(sha256)) throw new MetaMediaError('META_MEDIA_DATA_INVALID');
+  const limit = Number(limits[mediaType]);
+  if (!Number.isSafeInteger(limit) || limit < 1 || sizeBytes > limit) throw new MetaMediaError('META_MEDIA_SIZE_INVALID');
+  return { phoneNumberId, mimeType, mediaType, filename, filePath, sizeBytes, sha256 };
+}
+
 function providerUrl(value) {
   let url;
   try { url = new URL(String(value || '')); } catch { throw new MetaMediaError('META_MEDIA_RESPONSE_INVALID'); }
@@ -88,12 +103,23 @@ class MetaMediaService {
     this.limits = { ...MEDIA_LIMITS, ...limits };
   }
 
-  async upload({ accessToken, phoneNumberId, mimeType, filename, data, bytes }) {
-    const upload = normalizeUpload({ phoneNumberId, mimeType, filename, data, bytes }, this.limits);
+  async upload({ accessToken, phoneNumberId, mimeType, filename, data, bytes, filePath, sizeBytes, sha256 }) {
+    let upload; let file;
+    if (filePath !== undefined) {
+      upload = normalizeFileUpload({ phoneNumberId, mimeType, filename, filePath, sizeBytes, sha256 }, this.limits);
+      try {
+        const stat = await fs.promises.stat(upload.filePath);
+        if (!stat.isFile() || stat.size !== upload.sizeBytes || typeof fs.openAsBlob !== 'function') throw new Error('file is not available');
+        file = await fs.openAsBlob(upload.filePath, { type: upload.mimeType });
+      } catch { throw new MetaMediaError('META_MEDIA_DATA_INVALID'); }
+    } else {
+      upload = normalizeUpload({ phoneNumberId, mimeType, filename, data, bytes }, this.limits);
+      file = new Blob([upload.bytes], { type: upload.mimeType });
+    }
     const formData = new FormData();
     formData.set('messaging_product', 'whatsapp');
     formData.set('type', upload.mimeType);
-    formData.set('file', new Blob([upload.bytes], { type: upload.mimeType }), upload.filename);
+    formData.set('file', file, upload.filename);
     const payload = await this.graphClient.request({ path: [upload.phoneNumberId, 'media'], accessToken, method: 'POST', formData });
     const mediaId = boundedId(payload?.id, 'META_MEDIA_RESPONSE_INVALID');
     return { mediaId, mimeType: upload.mimeType, mediaType: upload.mediaType, filename: upload.filename, sizeBytes: upload.sizeBytes, sha256: upload.sha256 };
@@ -137,4 +163,4 @@ class MetaMediaService {
   }
 }
 
-module.exports = { MetaMediaService, MetaMediaError, MEDIA_LIMITS, MIME_TYPES, normalizeUpload, providerUrl, readBoundedResponse };
+module.exports = { MetaMediaService, MetaMediaError, MEDIA_LIMITS, MIME_TYPES, normalizeUpload, normalizeFileUpload, providerUrl, readBoundedResponse };

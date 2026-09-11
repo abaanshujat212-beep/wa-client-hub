@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const { Readable } = require('node:stream');
 const { createHash } = require('node:crypto');
 const { MetaMediaMultipartError, boundaryFromContentType, parseMetaMediaMultipart } = require('../src/messaging/metaMediaMultipart');
@@ -34,6 +35,21 @@ test('multipart parser handles fields, binary file data, and chunk-split boundar
   assert.equal(result.files[0].contentType, 'image/png');
   assert.deepEqual(result.files[0].data, data);
   assert.equal(result.files[0].sha256, createHash('sha256').update(data).digest('hex'));
+  result.cleanup();
+});
+
+test('multipart parser spills large file parts to disk and cleans them up', async () => {
+  const boundary = 'meta-spill';
+  const data = Buffer.from('1234567890');
+  const body = Buffer.concat([Buffer.from(`--${boundary}\r\n${file('upload', 'x.txt', '', 'text/plain')}\r\n--${boundary}--\r\n`), data]);
+  const result = await parseMetaMediaMultipart(Readable.from([body]), `multipart/form-data; boundary=${boundary}`, { fileMemoryBytes: 4 });
+  assert.equal(result.files[0].data, undefined);
+  assert.equal(result.files[0].sizeBytes, data.length);
+  assert.equal(result.files[0].sha256, createHash('sha256').update(data).digest('hex'));
+  assert.deepEqual(fs.readFileSync(result.files[0].filePath), data);
+  const filePath = result.files[0].filePath;
+  result.cleanup();
+  assert.equal(fs.existsSync(filePath), false);
 });
 
 test('multipart parser preserves repeated fields and rejects a part over its byte limit', async () => {
@@ -41,6 +57,7 @@ test('multipart parser preserves repeated fields and rejects a part over its byt
   const body = multipart(boundary, `${field('tag', 'one')}\r\n--${boundary}\r\n${field('tag', 'two')}`);
   const result = await parseMetaMediaMultipart(Readable.from([body]), `multipart/form-data; boundary=${boundary}`);
   assert.deepEqual(result.fields.tag, ['one', 'two']);
+  result.cleanup();
   await assert.rejects(parseMetaMediaMultipart(Readable.from([multipart(boundary, file('upload', 'x.bin', '12345'))]), `multipart/form-data; boundary=${boundary}`, { maxPartBytes: 4 }), error => error instanceof MetaMediaMultipartError && error.code === 'META_MEDIA_MULTIPART_PART_TOO_LARGE');
 });
 
