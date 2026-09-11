@@ -19,7 +19,7 @@ test('Meta media retention columns preserve legacy attachments and isolate due c
     await pool.query("INSERT INTO workspaces(id,owner_id,name,plan_id) VALUES('workspace','owner','Workspace','plan')");
     await pool.query("INSERT INTO provider_connections(id,workspace_id,provider,label,status,encrypted_credentials,encryption_key_id) VALUES('connection','workspace','whatsapp_cloud','Official','active',decode('00','hex'),'key-1')");
     await pool.query("INSERT INTO whatsapp_numbers(id,owner_id,workspace_id,label,phone,provider_connection_id,external_session_id,automation_enabled) VALUES('number','owner','workspace','Official','+923001112222','connection','123',false)");
-    await pool.query("INSERT INTO meta_connection_assets(provider_connection_id,workspace_id,waba_id,phone_number_id,display_phone_number,token_status,webhook_subscribed,account_status) VALUES('connection','workspace','987','123','+923001112222','valid',true,'connected')");
+    await pool.query("INSERT INTO meta_connection_assets(provider_connection_id,workspace_id,waba_id,phone_number_id) VALUES('connection','workspace','987','123')");
     await pool.query("INSERT INTO contacts(id,workspace_id,phone_e164) VALUES('contact','workspace','+923009999999')");
     await pool.query("INSERT INTO conversations(id,workspace_id,whatsapp_number_id,contact_id) VALUES('conversation','workspace','number','contact')");
     await pool.query("INSERT INTO messages(id,workspace_id,conversation_id,provider_connection_id,external_message_id,direction,origin,type,body,status,occurred_at) VALUES('message','workspace','conversation','connection','provider-message','outbound','api','image','sent','accepted',now())");
