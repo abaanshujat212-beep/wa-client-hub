@@ -17,7 +17,7 @@ test('Meta media retention columns preserve legacy attachments and isolate due c
     await pool.query("INSERT INTO users(id,name,email,password_hash,role) VALUES('owner','Owner','owner@media.test','unused','client')");
     await pool.query("INSERT INTO plans(id,name,workspace_limit,number_limit,user_limit) VALUES('plan','Plan',5,5,5)");
     await pool.query("INSERT INTO workspaces(id,owner_id,name,plan_id) VALUES('workspace','owner','Workspace','plan')");
-    await pool.query("INSERT INTO provider_connections(id,workspace_id,provider,label,status,encrypted_credentials,encryption_key_id) VALUES('connection','workspace','whatsapp_cloud','Official','active','ciphertext','key-1')");
+    await pool.query("INSERT INTO provider_connections(id,workspace_id,provider,label,status,encrypted_credentials,encryption_key_id) VALUES('connection','workspace','whatsapp_cloud','Official','active',decode('00','hex'),'key-1')");
     await pool.query("INSERT INTO whatsapp_numbers(id,owner_id,workspace_id,label,phone,provider_connection_id,external_session_id,automation_enabled) VALUES('number','owner','workspace','Official','+923001112222','connection','123',false)");
     await pool.query("INSERT INTO meta_connection_assets(provider_connection_id,workspace_id,waba_id,phone_number_id,display_phone_number,token_status,webhook_subscribed,account_status) VALUES('connection','workspace','987','123','+923001112222','valid',true,'connected')");
     await pool.query("INSERT INTO contacts(id,workspace_id,phone_e164) VALUES('contact','workspace','+923009999999')");
@@ -29,7 +29,7 @@ test('Meta media retention columns preserve legacy attachments and isolate due c
     await pool.query("INSERT INTO message_attachments(id,workspace_id,message_id,provider_connection_id,provider_media_id,media_type,provider_media_delete_after,provider_media_deleted_at) VALUES('deleted-attachment','workspace','message','connection','deleted-media','image',$1,now())", [new Date('2026-01-01T00:00:00Z')]);
     await pool.query("INSERT INTO message_attachments(id,workspace_id,message_id,provider_connection_id,provider_media_id,media_type,provider_media_delete_after,provider_media_delete_attempts) VALUES('exhausted-attachment','workspace','message','connection','exhausted-media','image',$1,5)", [new Date('2026-01-01T00:00:00Z')]);
 
-    const repository = new MetaMediaRepository(pool, { decrypt(ciphertext, connectionId, keyId) { assert.deepEqual([ciphertext, connectionId, keyId], ['ciphertext', 'connection', 'key-1']); return { accessToken: 'server-token' }; } });
+    const repository = new MetaMediaRepository(pool, { decrypt(ciphertext, connectionId, keyId) { assert.equal(Buffer.from(ciphertext).toString('hex'), '00'); assert.deepEqual([connectionId, keyId], ['connection', 'key-1']); return { accessToken: 'server-token' }; } });
     const candidates = await repository.listMediaCleanupCandidates({ now: new Date('2026-02-01T00:00:00Z'), limit: 100 });
     assert.deepEqual(candidates.map(row => row.attachmentId), ['due-attachment']);
     assert.equal(candidates[0].providerMediaId, 'provider-media');
