@@ -38,9 +38,9 @@ test('Meta media retention columns preserve legacy attachments and isolate due c
     assert.equal((await pool.query("SELECT provider_media_delete_attempts FROM message_attachments WHERE id='due-attachment'")).rows[0].provider_media_delete_attempts, 0);
 
     await assert.rejects(pool.query("INSERT INTO message_attachments(id,workspace_id,message_id,provider_connection_id,provider_media_id,media_type) VALUES('duplicate-attachment','workspace','message','connection','provider-media','image')"), error => error.code === '23505');
-    assert.equal(await repository.markMediaCleanupFailure({ attachmentId: 'due-attachment', code: 'META_HTTP_500: provider secret' }), true);
+    assert.equal(await repository.markMediaCleanupFailure({ attachmentId: 'due-attachment', code: 'META_HTTP_500' }), true);
     const failed = (await pool.query("SELECT provider_media_delete_attempts,provider_media_last_error FROM message_attachments WHERE id='due-attachment'")).rows[0];
-    assert.deepEqual(failed, { provider_media_delete_attempts: 1, provider_media_last_error: 'META_HTTP_500 provider secret' });
+    assert.deepEqual(failed, { provider_media_delete_attempts: 1, provider_media_last_error: 'META_HTTP_500' });
     assert.equal(await repository.markMediaCleanupDeleted({ attachmentId: 'due-attachment' }), true);
     assert.equal((await repository.listMediaCleanupCandidates({ now: new Date('2026-02-01T00:00:00Z'), limit: 100 })).length, 0);
   } finally {
