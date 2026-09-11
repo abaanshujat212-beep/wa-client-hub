@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const { MetaMediaService, MetaMediaError, normalizeUpload, providerUrl } = require('../src/messaging/metaMediaService');
 
 const data = Buffer.from('hello-media').toString('base64');
@@ -14,6 +15,17 @@ test('Meta media upload validates bounds and sends a multipart server-side paylo
   assert.equal(calls[0].formData.get('messaging_product'), 'whatsapp');
   assert.equal(calls[0].formData.get('type'), 'image/jpeg');
   assert.equal(calls[0].formData.get('file').name, 'photo.jpg');
+});
+
+test('Meta media upload accepts bounded binary bytes without base64 amplification', async () => {
+  const calls = [];
+  const bytes = Buffer.from([0, 1, 2, 255]);
+  const service = new MetaMediaService({ graphClient: { async request(input) { calls.push(input); return { id: 'media-binary' }; } } });
+  const result = await service.upload({ accessToken: 'server-token', phoneNumberId: 'phone-123', mimeType: 'image/png', filename: 'photo.png', bytes });
+  assert.equal(result.mediaId, 'media-binary');
+  assert.equal(result.sizeBytes, bytes.length);
+  assert.equal(result.sha256, crypto.createHash('sha256').update(bytes).digest('hex'));
+  assert.equal(calls[0].formData.get('file').size, bytes.length);
 });
 
 test('Meta media retrieve validates provider metadata and CDN URL', async () => {
