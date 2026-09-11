@@ -124,7 +124,7 @@ app.get("/api/ready", async (_req, res) => {
   res.status(readiness.ok ? 200 : 503).json({ ...readiness, time: new Date().toISOString() });
 });
 app.use(express.static(path.join(rootDir, "public"), { extensions: ["html"] }));
-app.get("/{*path}", (req, res) => res.sendFile(path.join(rootDir, "public", "index.html")));
+app.get("/{*path}", (req, res, next) => /^\/(api|oauth|webhooks)(\/|$)/.test(req.path) ? next() : res.sendFile(path.join(rootDir, "public", "index.html")));
 async function start() { const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com"; const adminPassword = process.env.ADMIN_PASSWORD || "ChangeMeNow123!"; assertSecurityConfig(process.env); await store.init({ adminEmail, adminPassword }); await dependencies.connect(); campaignWorker?.start(); connectorWorker?.start(); return app.listen(port, "0.0.0.0", () => console.log(`WA Client Hub running at http://localhost:${port} using ${store.driver} storage`)); }
 async function runMain() { const server = await start(); let closing = false; const shutdown = async () => { if (closing) return; closing = true; campaignWorker?.stop(); connectorWorker?.stop(); await new Promise((resolve) => server.close(resolve)); await dependencies.close(); if (typeof store.close === "function") await store.close(); process.exit(0); }; process.once("SIGINT", shutdown); process.once("SIGTERM", shutdown); }
 if (require.main === module) runMain().catch((error) => { console.error(error); process.exit(1); });
