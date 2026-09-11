@@ -14,7 +14,7 @@ class GhlPilotError extends Error { constructor(code, message = 'HighLevel priva
 function hashState(value) { return crypto.createHash('sha256').update(String(value)).digest('hex'); }
 function randomId(prefix) { return `${prefix}-${crypto.randomUUID()}`; }
 function scopes(value) { return [...new Set(Array.isArray(value) ? value.map(String) : String(value || '').split(/[ ,]+/).filter(Boolean))]; }
-function config(env = process.env) { return { clientId: String(env.GHL_CLIENT_ID || ''), clientSecret: String(env.GHL_CLIENT_SECRET || ''), redirectUri: String(env.GHL_REDIRECT_URI || `${env.APP_ORIGIN || ''}/oauth/highlevel/callback`), authUrl: String(env.GHL_AUTH_URL || DEFAULT_AUTH_URL), tokenUrl: String(env.GHL_TOKEN_URL || DEFAULT_TOKEN_URL), apiUrl: String(env.GHL_API_BASE_URL || DEFAULT_API_URL).replace(/\/$/, ''), requiredScopes: scopes(env.GHL_REQUIRED_SCOPES || DEFAULT_SCOPES), publicKey: env.GHL_PUBLIC_KEY || GHL_ED25519_PUBLIC_KEY, appOrigin: String(env.APP_ORIGIN || '') }; }
+function config(env = process.env) { return { clientId: String(env.GHL_CLIENT_ID || ''), clientSecret: String(env.GHL_CLIENT_SECRET || ''), redirectUri: String(env.GHL_REDIRECT_URI || `${env.APP_ORIGIN || ''}/oauth/crm/callback`), authUrl: String(env.GHL_AUTH_URL || DEFAULT_AUTH_URL), tokenUrl: String(env.GHL_TOKEN_URL || DEFAULT_TOKEN_URL), apiUrl: String(env.GHL_API_BASE_URL || DEFAULT_API_URL).replace(/\/$/, ''), requiredScopes: scopes(env.GHL_REQUIRED_SCOPES || DEFAULT_SCOPES), publicKey: env.GHL_PUBLIC_KEY || GHL_ED25519_PUBLIC_KEY, appOrigin: String(env.APP_ORIGIN || '') }; }
 function safeProviderError(error) { return new GhlPilotError(error?.code || 'GHL_PROVIDER_UNAVAILABLE', 'HighLevel service is temporarily unavailable', 503); }
 
 class GhlPilotRepository {
