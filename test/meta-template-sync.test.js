@@ -20,11 +20,11 @@ test('template sync paginates by opaque cursor and binds persistence to the fetc
   let replaced;
   const exactTarget = { workspaceId: 'w', connectionId: 'p', numberId: 'n', wabaId: '123', accessToken: 'secret' };
   const repository = {
-    async target(scope) { assert.deepEqual(scope, { actorId: 'u', workspaceId: 'w', connectionId: 'p' }); return exactTarget; },
+    async target(scope) { assert.deepEqual(scope, { actorId: 'u', workspaceId: 'w', connectionId: 'p', numberId: 'n' }); return exactTarget; },
     async replace(scope, templates, expectedTarget) { replaced = { scope, templates, expectedTarget }; return templates; }
   };
   const graphClient = { async request(input) { calls.push(input); return calls.length === 1 ? { data: [remote()], paging: { next: 'untrusted-url', cursors: { after: 'cursor-1' } } } : { data: [remote({ id: '124', name: 'receipt_ready', language: 'en' })] }; } };
-  const result = await new MetaTemplateSyncService({ repository, graphClient }).sync({ actorId: 'u', workspaceId: 'w', connectionId: 'p' });
+  const result = await new MetaTemplateSyncService({ repository, graphClient }).sync({ actorId: 'u', workspaceId: 'w', connectionId: 'p', numberId: 'n' });
   assert.equal(result.count, 2);
   assert.equal(calls[1].query.after, 'cursor-1');
   assert.equal(calls[1].accessToken, 'secret');
@@ -38,8 +38,19 @@ test('invalid or duplicate provider templates fail closed without persistence', 
   const repository = { async target() { return { workspaceId: 'w', connectionId: 'p', numberId: 'n', wabaId: '123', accessToken: 'secret' }; }, async replace() { writes += 1; } };
   for (const data of [[remote({ status: 'UNKNOWN' })], [remote(), remote({ id: '124' })], [remote(), remote({ name: 'receipt_ready' })], [{ ...remote(), components: null }], [remote({ id: 'not-numeric' })]]) {
     const service = new MetaTemplateSyncService({ repository, graphClient: { async request() { return { data }; } } });
-    await assert.rejects(service.sync({ actorId: 'u', workspaceId: 'w', connectionId: 'p' }), error => error.code === 'META_TEMPLATE_PAYLOAD_INVALID');
+    await assert.rejects(service.sync({ actorId: 'u', workspaceId: 'w', connectionId: 'p', numberId: 'n' }), error => error.code === 'META_TEMPLATE_PAYLOAD_INVALID');
   }
+  assert.equal(writes, 0);
+});
+
+test('incomplete provider pagination fails closed without persistence', async () => {
+  let writes = 0;
+  const repository = {
+    async target() { return { workspaceId: 'w', connectionId: 'p', numberId: 'n', wabaId: '123', accessToken: 'secret' }; },
+    async replace() { writes += 1; }
+  };
+  const service = new MetaTemplateSyncService({ repository, graphClient: { async request() { return { data: [], paging: { next: 'https://graph.example.test/next' } }; } } });
+  await assert.rejects(service.sync({ actorId: 'u', workspaceId: 'w', connectionId: 'p', numberId: 'n' }), error => error.code === 'META_TEMPLATE_PAYLOAD_INVALID');
   assert.equal(writes, 0);
 });
 
@@ -47,7 +58,7 @@ test('repeated provider pagination cursors fail closed', async () => {
   let writes = 0;
   const repository = { async target() { return { workspaceId: 'w', connectionId: 'p', numberId: 'n', wabaId: '123', accessToken: 'secret' }; }, async replace() { writes += 1; } };
   const service = new MetaTemplateSyncService({ repository, graphClient: { async request() { return { data: [], paging: { next: 'ignored', cursors: { after: 'same-cursor' } } }; } } });
-  await assert.rejects(service.sync({ actorId: 'u', workspaceId: 'w', connectionId: 'p' }), error => error.code === 'META_TEMPLATE_PAYLOAD_INVALID');
+  await assert.rejects(service.sync({ actorId: 'u', workspaceId: 'w', connectionId: 'p', numberId: 'n' }), error => error.code === 'META_TEMPLATE_PAYLOAD_INVALID');
   assert.equal(writes, 0);
 });
 
