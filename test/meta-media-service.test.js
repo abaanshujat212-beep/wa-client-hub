@@ -59,7 +59,7 @@ test('Meta media download validates the temporary response and its digest', asyn
   const result = await service.download({ accessToken: 'server-token', mediaId: 'media-123' });
   assert.deepEqual(result.bytes, bytes);
   assert.equal(result.contentType, 'image/jpeg');
-  assert.equal(calls[0].url, 'https://lookaside.fbsbx.com/temporary');
+  assert.equal(calls[0].url, 'https://lookaside.fbsbx.com/media/temporary');
   assert.equal(calls[0].input.redirect, 'error');
   assert.equal(calls[0].input.headers.authorization, 'Bearer server-token');
 });
