@@ -44,6 +44,12 @@ test('multipart parser preserves repeated fields and rejects a part over its byt
   await assert.rejects(parseMetaMediaMultipart(Readable.from([multipart(boundary, file('upload', 'x.bin', '12345'))]), `multipart/form-data; boundary=${boundary}`, { maxPartBytes: 4 }), error => error instanceof MetaMediaMultipartError && error.code === 'META_MEDIA_MULTIPART_PART_TOO_LARGE');
 });
 
+test('multipart parser applies the content-type-specific limit while reading a part', async () => {
+  const boundary = 'meta-type-limit';
+  const body = multipart(boundary, file('upload', 'x.png', '12345', 'image/png'));
+  await assert.rejects(parseMetaMediaMultipart(Readable.from([body]), `multipart/form-data; boundary=${boundary}`, { maxPartBytes: 100, maxPartBytesFor: part => part.contentType === 'image/png' ? 4 : 100 }), error => error instanceof MetaMediaMultipartError && error.code === 'META_MEDIA_MULTIPART_PART_TOO_LARGE');
+});
+
 test('multipart parser enforces total bytes and fails closed on truncation', async () => {
   const boundary = 'meta-total';
   await assert.rejects(parseMetaMediaMultipart(Readable.from([multipart(boundary, field('x', '123456'))]), `multipart/form-data; boundary=${boundary}`, { maxBytes: 10 }), error => error.code === 'META_MEDIA_MULTIPART_TOO_LARGE');

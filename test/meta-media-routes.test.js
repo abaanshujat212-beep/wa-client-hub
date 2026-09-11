@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { exactScope, validUpload, validMultipartUpload, mapError } = require('../src/messaging/metaMediaRoutes');
+const { exactScope, validUpload, validMultipartUpload, mapError, multipartPartLimit } = require('../src/messaging/metaMediaRoutes');
 
 test('Meta media routes require exact workspace and number scope', () => {
   assert.equal(exactScope({ workspaceId: 'workspace-1', numberId: 'number-1' }), true);
@@ -20,6 +20,13 @@ test('Meta media multipart validation accepts bytes but not encoded or extra fie
   assert.equal(validMultipartUpload(valid), true);
   assert.equal(validMultipartUpload({ ...valid, bytes: 'YQ==' }), false);
   assert.equal(validMultipartUpload({ ...valid, extra: true }), false);
+});
+
+test('Meta media multipart limits follow the allowlisted media types', () => {
+  assert.equal(multipartPartLimit({ contentType: 'image/png' }), 5 * 1024 * 1024);
+  assert.equal(multipartPartLimit({ contentType: 'audio/mpeg' }), 16 * 1024 * 1024);
+  assert.equal(multipartPartLimit({ contentType: 'application/pdf' }), 100 * 1024 * 1024);
+  assert.equal(multipartPartLimit({ contentType: 'application/x-unknown' }), 100 * 1024 * 1024);
 });
 
 test('Meta media errors do not expose provider details', () => {
