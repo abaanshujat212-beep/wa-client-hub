@@ -1,243 +1,135 @@
 # Meta WhatsApp Business Calling research for #51
 
-- Status: **Meta-first research and POC preparation only — #55 remains blocked**
-- Snapshot: 2026-09-11
-- Base: `main` at `e59750624e7a3a00f0375675611ea6acccb2d40b`
-- Scope: evaluate and validate **Meta WhatsApp Business Calling API as the primary native path**, with PSTN/SIP providers only as fallback or adjacent integrations.
+- Status: **Official capability verified; account/number POC still blocked — #55 remains blocked**
+- Evidence refreshed: 2026-09-11
+- Base reviewed: `main` at `e59750624e7a3a00f0375675611ea6acccb2d40b`
+- Scope: documentation and POC planning only; no calling implementation or production enablement.
 
-## Correction to the previous research
+## Decision and provider hierarchy
 
-The previous #51 documents treated Telnyx/Twilio/Vonage/Plivo/Agora as the primary calling path and stated that Meta WhatsApp calling was not verified. That is outdated. Meta now documents WhatsApp Business Calling through Cloud API, including user-initiated and business-initiated calls.
+1. **Meta WhatsApp Business Calling API** — primary native WhatsApp calling path.
+2. **SIP** — optional Meta-supported enterprise/PBX signaling path where operationally justified or required.
+3. **Telnyx, Twilio, Vonage, and Plivo** — PSTN/SIP fallback or adjacent telephony options, not the primary WhatsApp-native path.
 
-The corrected product decision is:
+Meta officially documents WhatsApp Business Calling through Cloud API for user-initiated and business-initiated VoIP calls. This corrects the earlier statement that no verified Meta calling capability existed. It does not prove that this repository's Meta account, WABA, app, or phone number is currently eligible or configured, and it does not authorize #55.
 
-> Evaluate and validate Meta WhatsApp Business Calling API as the primary provider-neutral/native calling path, with fallback PSTN/SIP provider options only where needed.
+> Meta WhatsApp Business Calling API is the primary native WhatsApp calling candidate, subject to verified account/number eligibility, required permissions, official Calling API availability, and successful POC validation.
 
-This is not production approval. It does not implement #55, select a provider for production, claim account eligibility, or claim video/screen-sharing readiness.
+## Official Meta documentation used
 
-## Official Meta evidence
+- [Cloud API Calling overview](https://developers.facebook.com/documentation/business-messaging/whatsapp/calling) — updated Jun 26, 2026.
+- [API and Webhook Reference](https://developers.facebook.com/documentation/business-messaging/whatsapp/calling/reference) — updated Jun 26, 2026.
+- [User-initiated calls](https://developers.facebook.com/documentation/business-messaging/whatsapp/calling/user-initiated-calls) — updated Jun 24, 2026.
+- [Business-initiated calls](https://developers.facebook.com/documentation/business-messaging/whatsapp/calling/business-initiated-calls) — updated Jun 26, 2026.
+- [Obtain user call permissions](https://developers.facebook.com/documentation/business-messaging/whatsapp/calling/user-call-permissions) — updated Jun 26, 2026.
+- [Configure Call Settings](https://developers.facebook.com/documentation/business-messaging/whatsapp/calling/call-settings) — updated Jul 6, 2026.
+- [SIP Configuration Guide](https://developers.facebook.com/documentation/business-messaging/whatsapp/calling/sip) — updated Aug 20, 2026.
+- [WhatsApp webhooks](https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/overview) — updated Jun 26, 2026.
+- [Calling FAQ](https://developers.facebook.com/documentation/business-messaging/whatsapp/calling/faq) — updated Jun 26, 2026.
 
-Primary sources reviewed:
+## Verified Meta capability
 
-- [WhatsApp Business Calling overview](https://developers.facebook.com/documentation/business-messaging/whatsapp/calling)
-- [Calling API and webhook reference](https://developers.facebook.com/documentation/business-messaging/whatsapp/calling/reference)
-- [User-initiated calls](https://developers.facebook.com/documentation/business-messaging/whatsapp/calling/user-initiated-calls)
-- [SIP configuration](https://developers.facebook.com/documentation/business-messaging/whatsapp/calling/sip)
-- [WhatsApp webhook overview](https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/overview)
-- [Cloud API get started](https://developers.facebook.com/documentation/business-messaging/whatsapp/get-started)
+### Number-level settings and required endpoints
 
-Meta documents that Calling API can receive calls from WhatsApp users and initiate calls from the business to WhatsApp users. The default architecture uses Graph APIs and Webhooks for signaling and WebRTC media with ICE, DTLS, and SRTP. OPUS is the documented default audio codec; additional codecs must be treated as capability evidence, not assumed support.
+Calling is configured and invoked on an exact Cloud API business phone-number ID:
 
-Meta also documents SIP as an optional, explicitly enabled signaling architecture. SIP can use WebRTC media or SDES/SRTP media depending on the approved configuration. The same Cloud API business number is used for messaging and calling.
+| Purpose | Official endpoint |
+|---|---|
+| Get number calling settings | `GET /<PHONE_NUMBER_ID>/settings` |
+| Configure number calling settings | `POST /<PHONE_NUMBER_ID>/settings` with a `calling` object |
+| Initiate a business call | `POST /<PHONE_NUMBER_ID>/calls`, `action: connect`, recipient, and RFC 8866 SDP offer |
+| Pre-accept inbound call (recommended) | `POST /<PHONE_NUMBER_ID>/calls`, `action: pre_accept`, call ID, and SDP answer |
+| Accept inbound call | `POST /<PHONE_NUMBER_ID>/calls`, `action: accept`, call ID, and SDP answer |
+| Reject inbound call | `POST /<PHONE_NUMBER_ID>/calls`, `action: reject` |
+| Terminate active call | `POST /<PHONE_NUMBER_ID>/calls`, `action: terminate` |
+| Read user permission/action readiness | `GET /<PHONE_NUMBER_ID>/call_permissions?user_wa_id=...` or `?recipient=<BSUID>` |
+| Send free-form permission request | `POST /<PHONE_NUMBER_ID>/messages` with interactive type `call_permission_request` inside an open customer-service window |
+| Create permission-request template | `POST /<WABA_ID>/message_templates` |
+| Send permission-request template | `POST /<PHONE_NUMBER_ID>/messages` |
 
-Meta marks some richer calling capabilities, including video-related capabilities in the overview, as planned or in development. This gate therefore targets **audio only** and must not describe video or screen sharing as production-ready.
+This confirms that calling is per business phone number. The same verified WhatsApp number can be used for messaging and calling.
 
-## Repo audit at the current main
+### Webhooks
 
-The repository already provides useful Meta messaging foundations:
+For the default Graph/Webhook architecture, subscribe the app to the WABA and the `calls` webhook field. Verified call notifications include:
 
-| Foundation | Current state | Calling implication |
-|---|---|---|
-| App/WABA/phone binding | `meta_connection_assets` stores WABA, phone-number, business portfolio, verification, and lifecycle data. | Reuse this binding; do not create a second Meta connection model. |
-| Encrypted credentials | `provider_connections.encrypted_credentials` is resolved through the server-side credential vault. | No Meta secret or long-lived token may reach mobile/browser. |
-| Embedded Signup | `public/meta-signup.js` and `metaSignup*` services validate the signed-in workspace, exchange the code server-side, verify the selected WABA phone, and encrypt the resulting token. | Calling eligibility must attach to the existing installed connection. |
-| Graph transport | `MetaGraphClient` provides versioned Graph paths, bearer authentication, timeout, bounded retry, and safe error classes. | Calling Graph actions should reuse this client. |
-| Lifecycle/diagnostics | Existing lifecycle routes expose connection status, token state, subscribed-app state, account state, quality, and diagnostics timestamps. | Extend diagnostics only after exact Calling settings fields are verified. |
-| Webhook verification | `metaWebhookRoutes` handles challenge verification and raw-body `x-hub-signature-256` verification. | Calling should use the same verified receiver and a separate calling normalization/service layer. |
-| Durable ingestion | `metaWebhookRepository` resolves by WABA + phone number, persists receipts, deduplicates, retries, dead-letters, and preserves workspace/provider/number ownership. | Reuse the receipt/security pipeline for `calls` events. |
-| Exact routing | `resolveAsset` joins the exact WABA, phone number, provider connection, workspace, and canonical number. | Preserve `workspace → WhatsApp number → Meta connection → CallSession`. Never use contact ID or first-number inference. |
-| UI | Embedded Signup, connection status, diagnostics, activation, templates, and media are exposed. | No live call button exists today; readiness must precede future call actions. |
+- Call Connect webhook with `field: calls`; inbound provides an SDP offer, business-initiated provides an SDP answer.
+- Business-initiated status webhook with `RINGING`, `ACCEPTED`, or `REJECTED`.
+- Call Terminate webhook with direction, status, timestamps, and duration fields where supplied.
 
-Important gaps found:
+The general webhook documentation requires `whatsapp_business_messaging` for messages and calls webhooks. `whatsapp_business_management` is required to read/manage phone-number settings; Advanced Access is required when acting for end-business clients. The existing raw-body webhook signature verification must remain in place. Meta does not guarantee exactly-once delivery or ordering for calling webhooks, so deduplication and out-of-order convergence are required.
 
-- The current normalizer accepts `messages` changes and message statuses, not `calls` changes.
-- Current diagnostics do not retrieve Calling phone-number settings such as calling status, call icon visibility, call hours, callback settings, or SIP mode.
-- `call_events` is only a preliminary legacy table with `started/answered/missed/ended/unknown`; there is no `CallSession`, call participant, capability, idempotency, or call-webhook receipt model.
-- Existing frontend Meta UI is messaging/connection UI, not a Calling UX.
-- The current code must not be extended by silently treating a message webhook or contact record as a call event.
+### Eligibility and account requirements
 
-## Architecture comparison
+Official prerequisites currently state:
 
-### A. Graph API + Webhooks + WebRTC — recommended MVP
+- the business number must use Cloud API, not the WhatsApp Business app;
+- the same Meta app must be subscribed to the WABA and have messaging permission for the number;
+- calling is disabled by default and must be enabled per phone number;
+- production use requires a daily messaging limit of at least 2,000 unique recipients;
+- a credit line must be attached to the WABA;
+- Meta business verification is not itself a Calling API prerequisite;
+- public test numbers can test without the 2,000-recipient threshold; Calling must still be enabled on the test number;
+- sandbox accounts are available only to Tech Partners.
 
-**Signaling:** Meta sends `calls` webhooks and accepts Calling API actions through Graph endpoints on the exact phone-number ID. User-initiated and business-initiated flows have different permission and SDP timing requirements.
+Account quality, policy restrictions, low-pickup/user-feedback restrictions, payment status, app mode, rollout state, and the actual settings returned for our number remain account-level gates.
 
-**Media:** WebRTC between the approved business media endpoint and Meta/WhatsApp. SDP offer/answer and ICE candidates are exchanged through the Meta-defined API/webhook flow. Media must not be invented from a message event.
+### User-initiated calls
 
-**Backend:** verify and durably receipt raw webhooks; resolve exact asset; normalize raw call events; persist idempotent call observations; authorize Graph actions; issue only short-lived/opaque client authorization; reconcile missed/out-of-order events; audit every action.
+User-initiated calling is officially available wherever Cloud API is available. A WhatsApp user calls the exact business number, Meta sends a Call Connect webhook with an SDP offer, and the business uses the Calls API to pre-accept/accept/reject/terminate. Meta documents roughly 30–60 seconds to accept after the connect webhook. Supported consumer origins include primary iPhone/Android devices and phone companion devices; callback-permission behavior on companion devices is not yet supported.
 
-**Mobile/browser:** own the WebRTC peer connection and audio device surface, with microphone permission, mute, speaker, Bluetooth/audio-route handling, reconnect, teardown, and platform-specific foreground/background behavior. The client never receives the Meta app secret or long-lived business token.
+### Business-initiated calls and permissions
 
-**NAT/ICE:** ICE connectivity is required. STUN/TURN requirements depend on the media endpoint and network; a production design should plan TURN for restrictive enterprise/mobile networks rather than assuming direct connectivity.
+A business must have permission from the WhatsApp user before calling. Permission can be obtained through a free-form request during an open customer-service window, a template request, callback permission after the user calls, or the user's business-profile setting.
 
-**Authentication:** backend credential vault plus workspace/RBAC/number eligibility checks. Client authorization is short-lived and capability-scoped.
+Verified production rules include:
 
-**Events:** evidence-driven initiated/permission/ringing/connected/terminal states. Raw Meta call ID, webhook event ID, SDP, and provider payload remain internal.
+- temporary permission lasts 7 calendar days (168 hours);
+- permanent permission remains until the user revokes it;
+- the user controls grant/revocation;
+- permission-request limits are 1 per 24 hours and 2 per 7 days per business-number/user pair;
+- 2 consecutive unanswered/rejected business calls trigger a reconsideration message;
+- 4 consecutive unanswered/rejected calls revoke approved permission;
+- a maximum of 100 connected calls per 24 hours is documented for the business-number/user pair;
+- the business-call initiation endpoint documents 10,000 initiation requests per 24 hours per business phone number.
 
-**Incoming/background behavior:** inbound delivery and ringing must be proven on the chosen browser/React Native surface. Android background/terminated behavior is a hard POC item, not an assumption from messaging webhooks.
+The live `call_permissions` response is authoritative for `send_call_permission_request` and `start_call`; UI must fail closed when `can_perform_action` is false or unknown.
 
-**Scale/operations:** one existing Meta connection and webhook plane, one call service/worker, per-workspace rate and concurrency controls, and a separate media/turn capacity plan.
+### WebRTC, SDP, ICE, and codecs
 
-**Recording:** not assumed. If later enabled, store only an opaque provider reference with consent, retention, deletion, access, and audit controls.
+The default configuration is Graph APIs + Webhooks for signaling and WebRTC for media:
 
-**Compatibility:** highest compatibility with the current Meta Cloud API connection, exact-number routing, Graph client, webhook receiver, and encrypted credential model.
+- SDP must comply with RFC 8866.
+- Media uses ICE + DTLS-SRTP; OPUS is always enabled and is the recommended default.
+- PCMA/PCMU can be enabled as additional codecs in number settings.
+- Meta uses ICE-lite; the business-side ICE agent must take the controlling role.
+- Meta does not provide STUN/TURN infrastructure. STUN/TURN is not mandatory merely to discover candidates, but the actual media endpoint/NAT design must be proven in the POC.
+- Exact SDP serialization, candidate selection, latency, firewall, reconnect, and physical-device behavior remain POC evidence.
 
-### B. SIP-based WhatsApp Calling
+Video and screen sharing are described by Meta as planned or in development, so this gate is **audio-only**. Recording/transcription are not assumed as Calling API deliverables.
 
-**Signaling:** SIP over TLS to the SIP endpoint configured for the WhatsApp business phone number. Meta documents SIP as requiring explicit enablement instead of the default Graph/Webhook signaling path.
+### SIP
 
-**Media:** either WebRTC media through the SIP architecture or SDES/SRTP where explicitly supported and approved. SDP, SIP authentication, digest/credentials, BYOC/PBX behavior, and termination must be tested as separate boundaries.
+SIP is supported but optional. It requires explicit enablement per phone number and a standards-compliant SIP server using TLS and digest authentication. When SIP is enabled, that number uses SIP signaling instead of Calling Graph endpoints. Calling webhooks are disabled by default in SIP mode but lifecycle delivery can be explicitly enabled. SIP is therefore an enterprise/PBX alternative, not an MVP dependency.
 
-**Backend:** operate or integrate a SIP edge/PBX/media service, protect SIP credentials, handle registration/authentication, map SIP dialogs to exact CallSessions, verify Meta SIP/webhook events, and provide reconciliation.
+## Country and Pakistan conclusion
 
-**Mobile/browser:** connects to the chosen PBX/media service or a controlled WebRTC gateway; audio permissions and device routing remain the client responsibility.
+- User-initiated calling: available wherever Cloud API is available.
+- Business-initiated calling: current Meta overview says available wherever Cloud API is available except the United States, Canada, Egypt, Vietnam, and Nigeria, based on the **business phone number country code**. The consumer can be in any Cloud API country.
+- Pakistan is not on that published exclusion list. This verifies Pakistan as a documented candidate, not that our Pakistan-linked account/number is enabled or approved.
 
-**NAT/ICE:** WebRTC still requires ICE/STUN/TURN when WebRTC media is used. SIP adds firewall, TLS, RTP/SRTP, NAT, codec, and port-range operations.
+Before any claim or POC success, verify the exact Pakistani business number's Cloud API status, country code, WABA credit line, 2,000-recipient production threshold or test-number exemption, settings response, permissions, payment/account quality, and actual inbound/outbound test behavior. Regulatory, recording-consent, data-processing, client availability, and commercial pricing questions remain separate.
 
-**Authentication:** Meta SIP settings plus connection-scoped SIP credentials and backend/PBX authorization. No credentials belong in the client.
+## Repository reuse decision
 
-**Events:** SIP dialogs and Meta call webhooks must be correlated by internal provider identity; no provider call ID becomes the public ID.
+The existing exact mapping can and should be reused:
 
-**Incoming/background behavior:** depends on SIP edge/PBX, push strategy, and mobile/browser client; it is more operationally complex than the default path.
+`workspace → conversation → WhatsApp number → provider connection → Meta adapter`
 
-**Scale/operations:** useful for PBX, queues, enterprise routing, server-side media, and existing telephony teams, but introduces a new media/signaling plane and monitoring burden.
-
-**Recording:** potentially simpler in a controlled PBX/media plane, but still subject to consent, jurisdiction, retention, deletion, and access controls.
-
-**Compatibility:** appropriate later for enterprise PBX/SIP/BYOC needs; not justified for the initial WA Client Hub MVP without an existing SIP requirement.
-
-### MVP decision
-
-Choose **Graph API + Webhooks + WebRTC** for the Meta Calling POC. Keep SIP as a documented later architecture for PBX, call-center queues, enterprise routing, or server-side media requirements. Do not add SIP dependencies or call infrastructure in this gate PR.
-
-## Eligibility and readiness contract
-
-Calling readiness is per exact connected number, not per workspace or contact. The future provider-neutral representation should expose status only, never secrets:
-
-```json
-{
-  "provider": "meta",
-  "workspaceId": "internal-workspace-id",
-  "whatsappNumberId": "internal-number-id",
-  "providerConnectionId": "internal-connection-id",
-  "mode": "graph_webrtc",
-  "cloudApiNumber": "unknown",
-  "wabaBinding": "unknown",
-  "appBinding": "unknown",
-  "messagingPermission": "unknown",
-  "callsWebhook": "unknown",
-  "callingEnabled": "unknown",
-  "callIconVisibility": "unknown",
-  "callHours": "unknown",
-  "callbackRequestSettings": "unknown",
-  "productionThreshold": "unknown",
-  "countryEligibility": "unknown",
-  "businessInitiatedEligible": "unknown",
-  "inboundEligible": "unknown",
-  "accountRestrictions": "unknown",
-  "testOrProduction": "unknown",
-  "canReceiveCalls": false,
-  "canBusinessInitiateCall": false,
-  "lastCheckedAt": null,
-  "blockingReasons": ["not_checked"]
-}
-```
-
-Required checks:
-
-- Cloud API number, not WhatsApp Business App number.
-- Correct WABA and exact Meta app binding.
-- App subscribed to the WABA and `calls` webhook field, unless the approved SIP mode uses its documented subscription model.
-- `whatsapp_business_messaging` permission available for the business number.
-- Calling enabled in phone-number Calling settings.
-- Call icon visibility, business calling hours, callback-request settings, and inbound settings explicitly checked.
-- Production messaging eligibility/limit checked against the current Meta account and test-number rules.
-- Country eligibility checked for the business number. Meta’s current business-initiated exclusion list must be rechecked at test time; Pakistan is not in the list observed in this snapshot, but that is not account-level approval.
-- Account quality, restrictions, low-pickup/user-feedback restrictions, and number mode checked.
-- `canReceiveCalls` and `canBusinessInitiateCall` are derived from verified Graph/settings/permission evidence, never from a hard-coded country or UI flag.
-
-The current backend does not yet implement these Calling-specific fields. This document is the readiness contract for the POC; adding them to diagnostics belongs in a narrowly scoped follow-up after the exact Meta settings responses and permissions are confirmed.
-
-## User-initiated call flow
-
-```text
-WhatsApp user
-  → calls the business Cloud API number
-  → Meta emits a calls webhook
-  → verified raw receipt / exact WABA + phone resolution
-  → workspace + exact WhatsApp number + Meta connection
-  → canonical CallSession and agent routing
-  → approved WebRTC offer/answer flow
-  → accept, reject, timeout, end, or missed state
-```
-
-The POC must capture redacted fixtures for call-created/connect/terminate and any permission or error events actually emitted by the selected Meta configuration. The calling reference documents call actions, SDP answer handling, and call-connect webhooks. Do not infer exact event names or transitions from message webhooks.
-
-Required behavior:
-
-- Verify raw-body signature before parsing.
-- Durable receipt before asynchronous normalization.
-- Dedupe by `(workspaceId, providerConnectionId, externalCallEventId)` where an event ID exists; otherwise use a bounded canonical hash with collision-safe fields.
-- Resolve by WABA + phone number + workspace/provider asset. Never route by GHL contact ID alone.
-- Preserve raw Meta call state separately from canonical state.
-- Accept duplicate and out-of-order events; reconcile after interruption.
-- Do not mark connected, ended, duration, or recording until Meta/WebRTC evidence supports it.
-
-## Business-initiated call flow
-
-Business-initiated calling is a separate eligibility and permission flow:
-
-1. Confirm exact number readiness and `canBusinessInitiateCall`.
-2. Confirm the user/contact permission state and any expiry/revocation rules required by the current Meta Calling API contract.
-3. Do not show an outbound Call action when permission, country, number settings, account status, or capability evidence is missing.
-4. Create one idempotent canonical `CallSession` and retain the internal Meta call reference.
-5. Invoke the documented phone-number Calling API action through the server-side Graph client.
-6. Process the Call Connect webhook and SDP answer, then establish the approved WebRTC media connection.
-7. Normalize ringing/connected/terminal evidence and reconcile duplicates, retries, rejected calls, and no-answer timeouts.
-
-The POC must verify the exact permission request, permission status, expiry/revocation, unanswered/rejected restrictions, Graph payload, callback/webhook sequence, caller identity, and idempotency behavior. Until those tests pass, `canBusinessInitiateCall` remains false.
-
-## Fallback provider role
-
-Telnyx, Twilio, Vonage, Plivo, and Agora/SIP research remains useful only for:
-
-- PSTN fallback;
-- SIP/BYOC or PBX interoperability;
-- non-WhatsApp telephony;
-- enterprise call-center/media integrations;
-- cases where Meta account/country/number eligibility is unavailable.
-
-They are not the default primary architecture for WhatsApp calls. Any fallback must preserve the same provider-neutral CallSession and exact workspace/number/provider routing contract.
-
-## GHL external-call mapping
-
-A native Meta call should be represented in GHL as an external WhatsApp call activity unless an official GHL native telephony contract is separately verified. Preserve:
-
-- canonical `callSessionId`;
-- internal Meta provider identity and external call reference;
-- exact workspace, contact, and WhatsApp number;
-- direction, agent, start/ringing/connect/end timestamps, duration, and canonical status;
-- raw Meta status where appropriate;
-- opaque recording reference and consent/access state.
-
-Never label Meta WhatsApp Calling as native HighLevel telephony, and never infer sender/calling context from a GHL contact ID alone.
-
-## Current #51 gate
-
-#51 remains **blocked**. The Meta POC must prove at minimum:
-
-- test or production Cloud API number binding;
-- WABA/app subscription and `calls` webhook delivery;
-- calling settings and permission evidence;
-- one inbound audio call;
-- business-initiated audio call where the number/account is eligible;
-- WebRTC SDP/ICE connection;
-- microphone, mute, speaker, Bluetooth/audio routing;
-- Android foreground and supported background/terminated behavior;
-- reject, no-answer, timeout, network interruption, reconnect, duplicate, and out-of-order handling;
-- exact multi-number tenant isolation;
-- no client secret or long-lived credential exposure;
-- CallSession persistence and GHL external-call fixture;
-- owner approval that #51 is unblocked.
-
-Until all hard gates and explicit owner approval exist, do not implement #55.
+`meta_connection_assets` already binds the WABA and phone-number ID to the encrypted Meta provider connection and canonical number. The existing Embedded Signup, credential vault, versioned Graph client, webhook verification, durable receipt, and exact WABA/phone/workspace resolution are the correct foundation. Calling must not create a parallel connection model and must never use first-number, first-provider, contact-only, or cross-workspace fallback.
+
+What is not yet implemented: call-event normalization, Calling settings diagnostics, permission readiness, canonical CallSession persistence, call actions, WebRTC/mobile media, and Calling UI. Those are POC/#55 concerns and are not authorized by this documentation PR.
+
+## Required POC before #55
+
+#55 remains blocked until the checklist and owner approval pass, including exact number/account eligibility, settings and permissions evidence, signed `calls` webhook fixtures, one inbound audio call, one eligible business-initiated audio call, SDP/ICE media, Android/browser foreground and background behavior, failure/retry/order handling, tenant and multi-number isolation, security review, and explicit owner approval.

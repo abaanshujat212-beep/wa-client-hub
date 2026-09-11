@@ -1,142 +1,113 @@
 # Meta WhatsApp Business Calling POC checklist for #51
 
-This is a research/POC checklist, not implementation of #55. Use a disposable Meta test/sandbox account and number where possible; do not use production customer traffic until every gate and the owner approval pass.
+This checklist validates official capability against our actual Meta account and number. It is not #55 implementation. Use a public test number or disposable non-production account where possible; do not enable production customer traffic.
 
-## Gate and owner approvals
+## Provider hierarchy and scope
 
-- [ ] Owner approves Meta WhatsApp Business Calling API as the primary POC path.
-- [ ] Owner approves Graph API + Webhooks + WebRTC as the MVP hypothesis, with SIP deferred unless the POC or product requirements justify it.
-- [ ] Owner approves audio-only scope; no production claim for video or screen sharing.
-- [ ] Target workspaces, numbers, countries, monthly minutes, concurrency, and spend limits are recorded.
-- [ ] Recording consent, jurisdictions, retention, deletion, access, and legal-review owner are recorded, or recording is explicitly out of scope.
-- [ ] #55 remains blocked during this checklist.
+- [ ] Meta WhatsApp Business Calling API is recorded as the primary native WhatsApp calling path.
+- [ ] Graph API + Webhooks + WebRTC is the primary audio POC.
+- [ ] SIP remains optional for an approved enterprise/PBX requirement.
+- [ ] Telnyx/Twilio/Vonage/Plivo remain PSTN/SIP fallback or adjacent options.
+- [ ] Video, screen sharing, recording, and transcription are not claimed as MVP capabilities.
+- [ ] #55 remains blocked throughout this checklist.
 
-## Meta account, number, and app readiness
+## Official evidence snapshot
 
-For **each exact connected WhatsApp number**, capture redacted evidence for every item; never mark a workspace ready because another number passed.
+- [ ] Attach the retrieval date and links for the Meta Calling overview, API/Webhook Reference, user-initiated guide, business-initiated guide, call-permissions guide, call-settings guide, SIP guide, webhook overview, and FAQ.
+- [ ] Recheck the country exclusion list, limits, permissions, Graph API version, and changelog immediately before the POC.
+- [ ] Record conflicts or changed official limits as `unverified` until confirmed by the live API/account.
 
-- [ ] Business phone number uses Cloud API, not the WhatsApp Business app.
-- [ ] Exact WABA ID is verified against the existing `meta_connection_assets` record.
-- [ ] Exact phone-number ID and display number are verified.
-- [ ] Exact Meta app binding is verified.
-- [ ] The same app is subscribed to the WABA.
-- [ ] `whatsapp_business_messaging` is available for the number.
-- [ ] `calls` webhook field is subscribed, unless the explicitly approved SIP mode uses its documented subscription model.
-- [ ] Calling is enabled in the phone-number Calling settings.
-- [ ] Call icon visibility is captured.
-- [ ] Business calling hours are captured.
-- [ ] Callback-request settings are captured.
-- [ ] Inbound calling is enabled/eligible.
-- [ ] Production messaging threshold/limit requirements are captured for the account; public test/sandbox rules are recorded separately.
-- [ ] Business phone-number country is checked against the current Meta business-initiated availability list.
-- [ ] Pakistan-specific result is verified on the actual number/account; country-list presence alone is not accepted as eligibility.
-- [ ] Account status, quality, restrictions, low-pickup/user-feedback restrictions, and test/production mode are captured.
-- [ ] `canReceiveCalls` and `canBusinessInitiateCall` are computed from observed settings/permission evidence, not a UI guess.
-- [ ] No token, app secret, or long-lived credential appears in logs, browser storage, mobile bundles, screenshots, or event fixtures.
+## Exact account and number readiness
 
-## Existing WA Client Hub foundation audit
+For each exact connected WhatsApp number:
 
-- [ ] Embedded Signup creates/uses the existing encrypted Meta connection; no parallel calling connection is created.
-- [ ] Graph requests use the existing versioned `MetaGraphClient` and server-side vault.
-- [ ] Webhook verification uses the existing raw-body HMAC path and exact configured app secret.
-- [ ] The existing durable receipt is extended/reused for `calls` events without weakening message handling.
-- [ ] A separate calling normalizer/service layer is used behind the same verified webhook receiver.
-- [ ] WABA + phone-number lookup resolves exactly one workspace, WhatsApp number, and Meta connection.
-- [ ] No first-number, first-provider, contact-only, or cross-workspace fallback exists.
-- [ ] Current message normalizer is not treated as a call normalizer by analogy.
-- [ ] Any Calling readiness diagnostics expose status/reasons only and are narrowly scoped; no call implementation is added in this gate.
+- [ ] Confirm it is a Cloud API number, not a WhatsApp Business app number.
+- [ ] Match exact WABA ID, phone-number ID, display number, Meta app, workspace, canonical number, and encrypted Meta provider connection.
+- [ ] Confirm the same app is subscribed to the WABA and `calls` webhook field.
+- [ ] Confirm `whatsapp_business_messaging`.
+- [ ] Confirm `whatsapp_business_management` and required Advanced Access for end-business settings management.
+- [ ] Confirm WABA credit line/payment readiness; never record credentials.
+- [ ] Confirm production daily messaging limit is at least 2,000 unique recipients, or document the public-test-number exemption.
+- [ ] Record whether the account is a Tech Partner sandbox or public test number; sandboxes are not assumed available.
+- [ ] `GET /<PHONE_NUMBER_ID>/settings` and record redacted Calling status, icon visibility/countries, hours, callback permission, codecs, and SIP status.
+- [ ] Calling remains disabled until the owner approves the disposable test number and settings change.
+- [ ] If approved for the test number, enable only the minimum required Calling settings with `POST /<PHONE_NUMBER_ID>/settings`.
+- [ ] Capture account quality, policy restrictions, low-pickup/user-feedback restrictions, app mode, rollout status, and Health/API evidence.
 
-## Inbound user-initiated call
+## Pakistan gate
+
+- [ ] Confirm the business phone-number country code and current Meta availability list.
+- [ ] Record that Pakistan is not in the current published business-initiated exclusion list; do not treat this alone as account approval.
+- [ ] Verify user-initiated behavior on the actual Pakistan-linked number/account.
+- [ ] Verify business-initiated permission and `start_call.can_perform_action` on the actual number/user pair.
+- [ ] Capture latency/media quality on representative Pakistani mobile and fixed broadband networks.
+- [ ] Obtain owner/compliance review for local law, consent, data processing, and any recording scope.
+
+## User-initiated audio call
 
 - [ ] WhatsApp user calls the exact business number.
-- [ ] `calls` webhook is received and the redacted raw envelope is stored.
-- [ ] Signature verification rejects an invalid body/signature pair.
-- [ ] Receipt is durable before asynchronous processing and replayable by an operator.
-- [ ] Event identity/dedupe behavior is documented for every observed event.
-- [ ] Exact WABA + phone resolves to the intended workspace/number/connection.
-- [ ] A canonical `CallSession` fixture is produced with `callSessionId`, workspace, contact, agent, number, direction, provider `meta`, and internal provider reference.
-- [ ] SDP offer/answer exchange is captured without storing credentials in the client.
-- [ ] ICE connectivity is proven on the target browser/mobile network.
-- [ ] TURN behavior is tested on a restrictive network or explicitly ruled out with evidence.
-- [ ] Incoming ringing surface shows the correct business/number context and contact context.
-- [ ] Accept and reject are tested.
-- [ ] End/terminate is tested and duration is calculated only from connected/end evidence.
-- [ ] Missed call and timeout behavior are observed and mapped conservatively.
-- [ ] Duplicate, replayed, delayed, and out-of-order events converge to one session.
-- [ ] Network interruption/reconnect and reconciliation after app restart are tested.
+- [ ] Receive signed `field: calls` Connect webhook with WABA and phone-number metadata and RFC 8866 SDP offer.
+- [ ] Resolve exactly: workspace → conversation/contact → WhatsApp number → Meta connection → Meta adapter.
+- [ ] Reject unknown, ambiguous, wrong-workspace, wrong-number, and wrong-provider assets.
+- [ ] Pre-accept with `POST /<PHONE_NUMBER_ID>/calls`, `action: pre_accept`, and matching SDP answer, or document why direct accept was used.
+- [ ] Accept/reject within Meta's documented approximately 30–60 second window.
+- [ ] Verify media starts only after successful accept/pre-accept timing.
+- [ ] Terminate with the Calls API when the business ends the call, even if RTCP BYE occurs.
+- [ ] Capture Terminate webhook and conservatively map status/timestamps/duration.
+- [ ] Test timeout, missed, rejected, duplicate, stale, delayed, replayed, and out-of-order events.
+- [ ] Test eligible primary and supported phone-companion consumer devices; mark unsupported companion callback behavior explicitly.
 
-## Business-initiated call and permission
+## Business-initiated audio call and permission
 
-- [ ] Exact Meta permission-request flow is captured.
-- [ ] Permission state is persisted separately from call state.
-- [ ] Permission expiry, revocation, and denied states are tested.
-- [ ] Per-user, unanswered, rejected, and account/country restrictions are captured.
-- [ ] Outbound Call action is hidden/disabled unless `canBusinessInitiateCall=true` for the exact number and contact permission.
-- [ ] Server-side Graph request requirements and action payloads are captured from the current Meta reference.
-- [ ] One eligible business-initiated audio call is completed, or the documented test-number limitation is attached.
-- [ ] Call Connect webhook and SDP answer are captured and applied to the WebRTC peer connection.
-- [ ] Ringing, connected, rejected, busy, no-answer, failed, and terminal events are captured where Meta emits them.
-- [ ] Client and provider idempotency keys are separated and retry behavior is tested.
-- [ ] Caller identity and exact WhatsApp number are preserved.
+- [ ] Query `GET /<PHONE_NUMBER_ID>/call_permissions` for the exact user phone/BSUID.
+- [ ] Persist permission status separately from call status.
+- [ ] Test no permission, temporary permission, permanent permission, expiry, user revocation, and automatic revocation.
+- [ ] Verify `send_call_permission_request.can_perform_action` and `start_call.can_perform_action`; fail closed on false/unknown.
+- [ ] Send a free-form interactive permission request only in an open customer-service window, or use an approved permission-request template.
+- [ ] Verify current limits: 1 request/24h, 2 requests/7d; temporary permission 168h; unanswered/rejected restriction behavior.
+- [ ] Initiate with `POST /<PHONE_NUMBER_ID>/calls`, exact number/user, `action: connect`, and RFC 8866 SDP offer.
+- [ ] Receive Connect webhook with SDP answer, then status evidence for `RINGING`, `ACCEPTED`, or `REJECTED` where emitted.
+- [ ] Complete one eligible business-initiated call or attach the exact account/number block as a failed hard gate.
+- [ ] Do not render an outbound Call action unless the exact number and user action are currently eligible.
 
-## WebRTC/mobile media
+## WebRTC and media
 
-- [ ] Browser or React Native media termination point is chosen and documented.
-- [ ] Backend issues only short-lived/opaque authorization.
-- [ ] Microphone permission denial and recovery are tested.
-- [ ] Mute/unmute is tested.
-- [ ] Speaker and Bluetooth/audio-route switching are tested on a physical device.
-- [ ] Device switching and teardown are tested.
-- [ ] Android foreground ringing/connected/end is tested.
-- [ ] Android background behavior is tested.
-- [ ] Android terminated/force-stopped behavior is tested where the selected design claims support; otherwise the limitation is explicit.
-- [ ] Reconnect after Wi-Fi/mobile-network transition is tested.
-- [ ] No client contains Meta app secrets, access tokens, SIP passwords, or long-lived provider credentials.
-- [ ] Audio codec and media security match current Meta documentation and observed SDP; no unsupported video/screen-sharing claim is made.
+- [ ] Use RFC 8866 SDP with correct CRLF serialization.
+- [ ] Verify ICE + DTLS-SRTP and OPUS; enable PCMA/PCMU only if required and tested.
+- [ ] Business ICE agent uses the controlling role against Meta ICE-lite.
+- [ ] Record actual candidates, firewall/UDP behavior, latency, and media endpoint location without storing secrets or unnecessary personal data.
+- [ ] Record that Meta provides no STUN/TURN service and determine through POC whether our endpoint needs STUN/TURN.
+- [ ] Test microphone permission, mute/unmute, speaker, Bluetooth/audio route, device switching, reconnect, network transition, and teardown.
+- [ ] Test browser/React Native foreground behavior.
+- [ ] Test Android background and terminated/force-stopped behavior; claim only what succeeds.
+- [ ] No Meta app secret, system token, long-lived token, or SIP password reaches browser/mobile code or logs.
 
-## Webhook security, state, and tenant isolation
+## Webhook, state, and isolation
 
-- [ ] Exact raw-body HMAC verification and timing-safe comparison pass.
-- [ ] HTTPS and bounded body limits are retained.
-- [ ] Duplicate event convergence passes.
-- [ ] Out-of-order event convergence passes.
-- [ ] Replay protection and operator replay audit pass.
-- [ ] Retry, backoff, dead-letter, and recovery pass.
-- [ ] Raw Meta state/event is stored separately from canonical state.
-- [ ] Terminal state is not overwritten by a late non-authoritative event.
-- [ ] Reconciliation after worker/app/network failure passes.
-- [ ] Workspace, agent, contact, WhatsApp number, and provider-connection isolation passes.
-- [ ] Sales and Support numbers on the same contact cannot share sender/calling context.
-- [ ] No first-number, first-provider, or GHL-contact-only routing exists.
-- [ ] Per-workspace, per-agent, per-number, destination, duration, concurrency, and spend limits pass.
-- [ ] Suspicious destination/failure/velocity controls are exercised.
+- [ ] Verify exact raw-body signature and reject invalid signatures.
+- [ ] Durably receipt before asynchronous normalization.
+- [ ] Deduplicate per workspace + provider connection + call/event identity.
+- [ ] Do not assume exactly-once delivery or webhook ordering.
+- [ ] Preserve raw Meta state separately from canonical state.
+- [ ] Terminal state is not overwritten by late non-authoritative evidence.
+- [ ] Retry/dead-letter/operator replay and reconciliation are bounded and audited.
+- [ ] Sales and Support numbers on the same contact cannot share calling context.
+- [ ] No first-number, first-provider, contact-only, or cross-workspace fallback exists.
+- [ ] Test RBAC, concurrency, destination, duration, rate/spend, and abuse controls.
 
-## Canonical record and GHL fixture
+## Optional SIP checkpoint
 
-- [ ] Canonical record includes `callSessionId`, `workspaceId`, `contactId`, `agentId`, `whatsappNumberId`, direction, voice media kind, state, started/ringing/connected/ended timestamps, duration, `provider: meta`, internal connection reference, and optional recording reference.
-- [ ] Raw Meta call ID, event ID, state, SDP metadata, and payload remain internal.
-- [ ] Recording remains disabled unless consent and policy are approved.
-- [ ] If recording is tested, retrieval, access audit, deletion, retention, and legal hold are verified; only an opaque reference is mapped.
-- [ ] GHL mapping fixture treats the call as an external WhatsApp call activity unless an official native HighLevel telephony contract is verified.
-- [ ] GHL fixture preserves exact workspace/contact/number, direction, agent, timestamps, duration, canonical/raw status, and recording reference.
-- [ ] GHL fixture rejects ambiguous contact/number/provider mappings.
+- [ ] Do not enable SIP unless PBX/enterprise requirements justify it.
+- [ ] If tested, use a standards-compliant SIP server with TLS and digest authentication.
+- [ ] Confirm that SIP mode replaces Calling Graph signaling for that exact number.
+- [ ] Explicitly enable SIP lifecycle webhook delivery if required; it is off by default.
+- [ ] Test SIP credentials, SDP/media mode, firewall/NAT, codecs, call-ID correlation, BYE, and reconciliation separately.
+- [ ] Keep all SIP credentials server-side and connection-scoped.
 
-## SIP comparison checkpoint
+## Exit and unblock rule
 
-- [ ] Graph/Webhook/WebRTC result is documented before SIP selection.
-- [ ] SIP is selected only if PBX/Asterisk, enterprise queueing, BYOC, server-side media, or a WebRTC failure justifies it.
-- [ ] If tested, SIP TLS/authentication, SDP, RTP/SRTP/SDES, NAT/firewall, codec, registration, BYE, recording, and reconciliation evidence are attached separately.
-- [ ] SIP credentials remain server-side and connection-scoped.
-
-## Exit package and unblock rule
-
-- [ ] Official Meta source links and retrieval date are attached.
-- [ ] Redacted webhook fixtures, Graph request/response samples, SDP/ICE notes, and error states are attached.
-- [ ] Test number/production number settings and account eligibility evidence are attached.
-- [ ] Android/browser screenshots and network/media logs are attached.
-- [ ] Duplicate/out-of-order/retry/reconciliation evidence is attached.
-- [ ] Multi-number isolation evidence is attached.
-- [ ] GHL external-call mapping fixture is attached.
-- [ ] ADR-002 is updated with observed capabilities and deviations.
+- [ ] Attach redacted settings, permission responses, Graph requests/responses, webhook fixtures, SDP/ICE notes, client results, and failure evidence to #51.
+- [ ] Confirm exact multi-tenant routing and no-secret exposure.
+- [ ] Update ADR-002 with observed capabilities and deviations.
 - [ ] Owner explicitly comments that #51 is `approved/unblocked`.
-- [ ] Only after the previous item may a separate #55 implementation branch/PR be created.
+- [ ] Only after every hard gate and owner approval may a separate #55 implementation branch/PR be created.
