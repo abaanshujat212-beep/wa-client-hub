@@ -15,7 +15,7 @@ class MetaMediaMultipartError extends Error {
 
 function boundaryFromContentType(contentType) {
   const value = String(contentType || '');
-  if (!/^multipart\/form-data\s*;/i.test(value)) throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_TYPE_INVALID');
+  if (!/^multipart\/form-data(?:\s*;|$)/i.test(value)) throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_TYPE_INVALID');
   const match = value.match(/(?:^|;)\s*boundary=(?:"([^"]+)"|([^;\s]+))/i);
   const boundary = String(match?.[1] || match?.[2] || '');
   if (!boundary || boundary.length > 200 || /[\r\n]/.test(boundary)) throw new MetaMediaMultipartError('META_MEDIA_MULTIPART_BOUNDARY_INVALID');
