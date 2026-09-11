@@ -1,6 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const { MetaMediaService, MetaMediaError, normalizeUpload, providerUrl } = require('../src/messaging/metaMediaService');
 
 const data = Buffer.from('hello-media').toString('base64');
@@ -26,6 +29,21 @@ test('Meta media upload accepts bounded binary bytes without base64 amplificatio
   assert.equal(result.sizeBytes, bytes.length);
   assert.equal(result.sha256, crypto.createHash('sha256').update(bytes).digest('hex'));
   assert.equal(calls[0].formData.get('file').size, bytes.length);
+});
+
+test('Meta media upload sends spilled file content without recreating an in-memory buffer', async () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'wa-meta-test-'));
+  const filePath = path.join(directory, 'upload.bin');
+  const bytes = Buffer.from('disk-backed-media');
+  fs.writeFileSync(filePath, bytes);
+  const calls = [];
+  try {
+    const service = new MetaMediaService({ graphClient: { async request(input) { calls.push(input); return { id: 'media-file' }; } } });
+    const result = await service.upload({ accessToken: 'server-token', phoneNumberId: 'phone-123', mimeType: 'text/plain', filename: 'upload.txt', filePath, sizeBytes: bytes.length, sha256: crypto.createHash('sha256').update(bytes).digest('hex') });
+    assert.equal(result.mediaId, 'media-file');
+    assert.equal(calls[0].formData.get('file').size, bytes.length);
+    assert.equal(await calls[0].formData.get('file').text(), bytes.toString());
+  } finally { fs.rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('Meta media retrieve validates provider metadata and CDN URL', async () => {
