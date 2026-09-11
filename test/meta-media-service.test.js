@@ -34,6 +34,18 @@ test('Meta media retrieve validates provider metadata and CDN URL', async () => 
   assert.deepEqual(result, { mediaId: 'media-123', mimeType: 'image/jpeg', mediaType: 'image', sizeBytes: 11, sha256: 'a'.repeat(64), url: 'https://lookaside.fbsbx.com/media/temporary' });
 });
 
+test('Meta media download validates the temporary response and its digest', async () => {
+  const bytes = Buffer.from('hello-media');
+  const calls = [];
+  const service = new MetaMediaService({ graphClient: { async request() { return { id: 'media-123', mime_type: 'image/jpeg', file_size: bytes.length, sha256: crypto.createHash('sha256').update(bytes).digest('hex'), url: 'https://lookaside.fbsbx.com/media/temporary' }; } }, fetchImpl: async (url, input) => { calls.push({ url, input }); return { ok: true, headers: new Headers({ 'content-type': 'image/jpeg', 'content-length': String(bytes.length) }), arrayBuffer: async () => bytes }; } });
+  const result = await service.download({ accessToken: 'server-token', mediaId: 'media-123' });
+  assert.deepEqual(result.bytes, bytes);
+  assert.equal(result.contentType, 'image/jpeg');
+  assert.equal(calls[0].url, 'https://lookaside.fbsbx.com/media/temporary');
+  assert.equal(calls[0].input.redirect, 'error');
+  assert.equal(calls[0].input.headers.authorization, 'Bearer server-token');
+});
+
 test('Meta media delete and malformed metadata fail closed', async () => {
   let deleted;
   const service = new MetaMediaService({ graphClient: { async request(input) { deleted = input; return { success: true }; } } });
@@ -43,4 +55,13 @@ test('Meta media delete and malformed metadata fail closed', async () => {
   assert.throws(() => providerUrl('https://127.0.0.1/internal'), error => error.code === 'META_MEDIA_RESPONSE_INVALID');
   const invalid = new MetaMediaService({ graphClient: { async request() { return { id: 'media-123', mime_type: 'image/jpeg', file_size: 11, sha256: 'bad', url: 'https://lookaside.fbsbx.com/media/temporary' }; } } });
   await assert.rejects(invalid.retrieve({ accessToken: 'server-token', mediaId: 'media-123' }), error => error.code === 'META_MEDIA_RESPONSE_INVALID');
+});
+
+test('Meta media download rejects provider redirects, wrong types, and oversized bodies', async () => {
+  const bytes = Buffer.from('hello-media');
+  const metadata = { id: 'media-123', mime_type: 'image/jpeg', file_size: bytes.length, sha256: crypto.createHash('sha256').update(bytes).digest('hex'), url: 'https://lookaside.fbsbx.com/media/temporary' };
+  const wrongType = new MetaMediaService({ graphClient: { async request() { return metadata; } }, fetchImpl: async () => ({ ok: true, headers: new Headers({ 'content-type': 'text/plain' }), arrayBuffer: async () => bytes }) });
+  await assert.rejects(wrongType.download({ accessToken: 'server-token', mediaId: 'media-123' }), error => error.code === 'META_MEDIA_DOWNLOAD_INVALID');
+  const oversized = new MetaMediaService({ graphClient: { async request() { return metadata; } }, fetchImpl: async () => ({ ok: true, headers: new Headers({ 'content-type': 'image/jpeg', 'content-length': String(6 * 1024 * 1024) }), arrayBuffer: async () => bytes }) });
+  await assert.rejects(oversized.download({ accessToken: 'server-token', mediaId: 'media-123' }), error => error.code === 'META_MEDIA_DOWNLOAD_TOO_LARGE');
 });

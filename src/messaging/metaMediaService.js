@@ -50,14 +50,41 @@ function normalizeUpload(input = {}, limits = MEDIA_LIMITS) {
 function providerUrl(value) {
   let url;
   try { url = new URL(String(value || '')); } catch { throw new MetaMediaError('META_MEDIA_RESPONSE_INVALID'); }
-  if (url.protocol !== 'https:' || !MEDIA_HOST_SUFFIXES.some(suffix => url.hostname === suffix.slice(1) || url.hostname.endsWith(suffix))) throw new MetaMediaError('META_MEDIA_RESPONSE_INVALID');
+  const hostname = url.hostname.toLowerCase();
+  if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443') || !MEDIA_HOST_SUFFIXES.some(suffix => hostname === suffix.slice(1) || hostname.endsWith(suffix))) throw new MetaMediaError('META_MEDIA_RESPONSE_INVALID');
   return url.toString();
 }
 
+async function readBoundedResponse(response, limit) {
+  const declared = Number(response?.headers?.get?.('content-length'));
+  if (Number.isSafeInteger(declared) && declared > limit) throw new MetaMediaError('META_MEDIA_DOWNLOAD_TOO_LARGE');
+  if (response?.body?.getReader) {
+    const reader = response.body.getReader(); const chunks = []; let total = 0;
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      const chunk = Buffer.from(next.value);
+      total += chunk.length;
+      if (total > limit) throw new MetaMediaError('META_MEDIA_DOWNLOAD_TOO_LARGE');
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks, total);
+  }
+  if (typeof response?.arrayBuffer === 'function') {
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length > limit) throw new MetaMediaError('META_MEDIA_DOWNLOAD_TOO_LARGE');
+    return bytes;
+  }
+  throw new MetaMediaError('META_MEDIA_DOWNLOAD_INVALID');
+}
+
 class MetaMediaService {
-  constructor({ graphClient, limits = MEDIA_LIMITS } = {}) {
+  constructor({ graphClient, limits = MEDIA_LIMITS, fetchImpl = globalThis.fetch, timeoutMs = 10000 } = {}) {
     if (!graphClient || typeof graphClient.request !== 'function') throw new TypeError('Meta Graph client is required');
+    if (typeof fetchImpl !== 'function') throw new TypeError('Media fetch implementation is required');
     this.graphClient = graphClient;
+    this.fetchImpl = fetchImpl;
+    this.timeoutMs = Math.min(30000, Math.max(1000, Number(timeoutMs) || 10000));
     this.limits = { ...MEDIA_LIMITS, ...limits };
   }
 
@@ -84,6 +111,24 @@ class MetaMediaService {
     return { mediaId: responseId, mimeType, mediaType: MIME_TYPES.get(mimeType), sizeBytes, sha256, url: providerUrl(payload?.url) };
   }
 
+  async download({ accessToken, mediaId }) {
+    const metadata = await this.retrieve({ accessToken, mediaId });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const response = await this.fetchImpl(metadata.url, { method: 'GET', redirect: 'error', headers: { authorization: `Bearer ${String(accessToken || '').trim()}` }, signal: controller.signal });
+      if (!response?.ok) throw new MetaMediaError('META_MEDIA_DOWNLOAD_UNAVAILABLE');
+      const contentType = String(response.headers?.get?.('content-type') || '').split(';', 1)[0].trim().toLowerCase();
+      if (contentType !== metadata.mimeType || !MIME_TYPES.has(contentType)) throw new MetaMediaError('META_MEDIA_DOWNLOAD_INVALID');
+      const bytes = await readBoundedResponse(response, this.limits[metadata.mediaType]);
+      if (metadata.sizeBytes !== bytes.length || crypto.createHash('sha256').update(bytes).digest('hex') !== metadata.sha256) throw new MetaMediaError('META_MEDIA_DOWNLOAD_INVALID');
+      return { ...metadata, contentType, bytes };
+    } catch (error) {
+      if (error instanceof MetaMediaError) throw error;
+      throw new MetaMediaError(error?.name === 'AbortError' ? 'META_MEDIA_DOWNLOAD_TIMEOUT' : 'META_MEDIA_DOWNLOAD_UNAVAILABLE');
+    } finally { clearTimeout(timer); }
+  }
+
   async remove({ accessToken, mediaId }) {
     const id = boundedId(mediaId, 'META_MEDIA_ID_INVALID');
     const payload = await this.graphClient.request({ path: [id], accessToken, method: 'DELETE' });
@@ -92,4 +137,4 @@ class MetaMediaService {
   }
 }
 
-module.exports = { MetaMediaService, MetaMediaError, MEDIA_LIMITS, MIME_TYPES, normalizeUpload, providerUrl };
+module.exports = { MetaMediaService, MetaMediaError, MEDIA_LIMITS, MIME_TYPES, normalizeUpload, providerUrl, readBoundedResponse };
