@@ -13,12 +13,16 @@ function Require-Command([string]$Name, [string]$Help) {
 
 function Wait-ForDocker {
   Require-Command 'docker' 'Install Docker Desktop from https://docs.docker.com/desktop/install/windows-install/'
+  docker info *> $null
+  if ($LASTEXITCODE -eq 0) { return }
+  $dockerRoot = Split-Path -Parent (Split-Path -Parent (Get-Command docker).Source)
   $desktop = @(
     "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe",
-    "$env:LOCALAPPDATA\Docker\Docker Desktop.exe"
+    "$env:LOCALAPPDATA\Docker\Docker Desktop.exe",
+    (Join-Path (Split-Path -Parent $dockerRoot) 'frontend\Docker Desktop.exe')
   ) | Where-Object { Test-Path $_ } | Select-Object -First 1
   if (-not $desktop) { throw 'Docker Desktop was not found. Install it and enable Start Docker Desktop when you sign in.' }
-  if (-not (Get-Process -Name 'Docker Desktop' -ErrorAction SilentlyContinue)) { Start-Process $desktop }
+  if (-not (Get-Process -Name 'Docker Desktop' -ErrorAction SilentlyContinue)) { Start-Process $desktop -WindowStyle Hidden }
   for ($i = 0; $i -lt 60; $i++) {
     docker info *> $null
     if ($LASTEXITCODE -eq 0) { return }
