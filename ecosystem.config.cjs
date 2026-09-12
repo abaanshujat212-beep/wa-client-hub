@@ -2,7 +2,7 @@ module.exports = {
   apps: [
     {
       name: "wa-client-hub",
-      script: "src/server.js",
+      script: "src/main.js",
       cwd: __dirname,
       instances: 1,
       autorestart: true,
