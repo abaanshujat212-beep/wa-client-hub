@@ -10,7 +10,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 if (-not (Get-Command cloudflared -ErrorAction SilentlyContinue)) { throw 'cloudflared is missing. Install it with: winget install --id Cloudflare.cloudflared' }
-if (-not [guid]::TryParse($TunnelId, [ref]$null)) { throw 'TunnelId must be the UUID printed by cloudflared tunnel create.' }
+$parsedTunnelId = [guid]::Empty
+if (-not [guid]::TryParse($TunnelId, [ref]$parsedTunnelId)) { throw 'TunnelId must be the UUID printed by cloudflared tunnel create.' }
 
 $CloudflaredDir = Join-Path $env:USERPROFILE '.cloudflared'
 $Credentials = Join-Path $CloudflaredDir "$TunnelId.json"
