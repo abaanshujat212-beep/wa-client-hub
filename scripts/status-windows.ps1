@@ -19,8 +19,13 @@ Write-Host "Local URL:       http://127.0.0.1:3131"
 Write-Host "Public URL:      $origin"
 
 Write-Host "`nWindows startup task:"
-& schtasks.exe /Query /TN 'WA Client Hub - Start stack' /FO LIST 2>$null
-if ($LASTEXITCODE -ne 0) { Write-Host '  not installed' -ForegroundColor Yellow }
+$taskOutput = @(& schtasks.exe /Query /TN 'WA Client Hub - Start stack' /FO LIST 2>&1)
+$taskExitCode = $LASTEXITCODE
+if ($taskExitCode -eq 0) {
+  $taskOutput | ForEach-Object { Write-Host $_ }
+} else {
+  Write-Host '  not installed' -ForegroundColor Yellow
+}
 
 Write-Host "`nCloudflare service:"
 $service = Get-Service cloudflared -ErrorAction SilentlyContinue
