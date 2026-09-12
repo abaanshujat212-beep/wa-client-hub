@@ -9,11 +9,19 @@ $StartupScript = Join-Path $Root 'scripts\start-stack-windows.ps1'
 if (-not (Test-Path $StartupScript)) { throw "Startup script not found: $StartupScript" }
 
 $taskName = 'WA Client Hub - Start stack'
-$taskRun = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$StartupScript`" -Mode $Mode"
-& schtasks.exe /Create /TN $taskName /SC ONLOGON /TR $taskRun /F /RL LIMITED
-if ($LASTEXITCODE -ne 0) { throw 'Could not create the Windows logon task.' }
+$currentUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+$taskArguments = "-NoProfile -ExecutionPolicy Bypass -File `"$StartupScript`" -Mode $Mode"
 
-Write-Host "Created '$taskName' for mode '$Mode'." -ForegroundColor Green
+try {
+  $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $taskArguments
+  $trigger = New-ScheduledTaskTrigger -AtLogOn -User $currentUser
+  $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType InteractiveToken -RunLevel Limited
+  Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
+} catch {
+  throw "Could not create the Windows logon task for $currentUser. Windows returned: $($_.Exception.Message). Try an elevated PowerShell once, then rerun this script."
+}
+
+Write-Host "Created '$taskName' for $currentUser in mode '$Mode'." -ForegroundColor Green
 Write-Host 'The task starts Docker Desktop, waits for Docker, then starts the selected stack.'
-Write-Host "Test now with: schtasks.exe /Run /TN `"$taskName`""
-Write-Host "Remove it with: schtasks.exe /Delete /TN `"$taskName`" /F"
+Write-Host "Test now with: Start-ScheduledTask -TaskName `"$taskName`""
+Write-Host "Remove it with: Unregister-ScheduledTask -TaskName `"$taskName`" -Confirm:`$false"
