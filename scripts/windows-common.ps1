@@ -53,7 +53,7 @@ function Assert-WaDockerEnv([string]$Path = '.env.docker') {
     if ([string]::IsNullOrWhiteSpace($value) -or $value -match 'change-me|replace-with|YOUR_|<.*>') { $missing += $key }
   }
   if ($missing.Count) { throw "Mandatory .env.docker values are missing or still placeholders: $($missing -join ', '). Edit .env.docker, then run the launcher again." }
-  if ([string]$values['SESSION_SECRET'] .Length -lt 32) { throw 'SESSION_SECRET must be at least 32 characters.' }
+  if (([string]$values['SESSION_SECRET']).Length -lt 32) { throw 'SESSION_SECRET must be at least 32 characters.' }
   try {
     $decoded = [Convert]::FromBase64String([string]$values['CONNECTOR_MASTER_KEY'])
     if ($decoded.Length -ne 32) { throw 'wrong length' }

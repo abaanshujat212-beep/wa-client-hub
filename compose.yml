@@ -22,6 +22,15 @@ x-app-environment: &app-environment
   META_EMBEDDED_SIGNUP_CONFIG_ID: ${META_EMBEDDED_SIGNUP_CONFIG_ID:-}
   META_REDIRECT_URI: ${META_REDIRECT_URI:-}
   META_WEBHOOK_VERIFY_TOKEN: ${META_WEBHOOK_VERIFY_TOKEN:-}
+  GHL_CLIENT_ID: ${GHL_CLIENT_ID:-}
+  GHL_CLIENT_SECRET: ${GHL_CLIENT_SECRET:-}
+  GHL_REDIRECT_URI: ${GHL_REDIRECT_URI:-https://wa.10xcollab.com/oauth/crm/callback}
+  GHL_AUTH_URL: ${GHL_AUTH_URL:-https://marketplace.gohighlevel.com/oauth/chooselocation}
+  GHL_TOKEN_URL: ${GHL_TOKEN_URL:-https://services.leadconnectorhq.com/oauth/token}
+  GHL_API_BASE_URL: ${GHL_API_BASE_URL:-https://services.leadconnectorhq.com}
+  GHL_API_VERSION: ${GHL_API_VERSION:-2023-02-21}
+  GHL_REQUIRED_SCOPES: ${GHL_REQUIRED_SCOPES:-conversations.write}
+  GHL_PUBLIC_KEY: ${GHL_PUBLIC_KEY:-}
   OPENWA_BASE_URL: http://openwa:8080
   OPENWA_API_KEY: ${OPENWA_API_KEY:-}
   OPENWA_SESSION_ID: ${OPENWA_SESSION_ID:-primary}

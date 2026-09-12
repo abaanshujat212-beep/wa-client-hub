@@ -13,7 +13,7 @@ function Ask-YesNo([string]$Question, [bool]$Default = $true) {
 function Ensure-OptionalTool([string]$Name, [string]$WingetId, [string]$InstallHelp) {
   if (Get-Command $Name -ErrorAction SilentlyContinue) { return $true }
   Write-Host "$Name is missing. $InstallHelp" -ForegroundColor Yellow
-  if (Get-Command winget -ErrorAction SilentlyContinue -and (Ask-YesNo "Install $Name with winget now?" $false)) {
+  if ((Get-Command winget -ErrorAction SilentlyContinue) -and (Ask-YesNo "Install $Name with winget now?" $false)) {
     & winget install --id $WingetId --exact --accept-source-agreements --accept-package-agreements
     if ($LASTEXITCODE -eq 0 -and (Get-Command $Name -ErrorAction SilentlyContinue)) { return $true }
     Write-Host "$Name was installed or updated. Open a new PowerShell window if it is still not on PATH." -ForegroundColor Yellow
