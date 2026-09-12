@@ -46,9 +46,9 @@ try {
   & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'start-stack-windows.ps1') -Mode docker
   if ($LASTEXITCODE -ne 0) { throw 'Docker stack startup failed.' }
   $origin = Get-WaAppOrigin $envValues
-  $health = Wait-WaHealth $origin
+  $health = Wait-WaHealth 'http://127.0.0.1:3131'
   Write-WaHealthSummary $origin $health
-  if (-not ($health.Health.Ok -and $health.Ready.Ok)) { Add-Action 'The Docker stack started but /api/health or /api/ready did not return 2xx.' }
+  if (-not ($health.Health.Ok -and $health.Ready.Ok)) { Add-Action 'The Docker stack started but local /api/health or /api/ready did not return 2xx.' }
 } catch { Add-Action $_.Exception.Message }
 
 if (Ask-YesNo 'Install or refresh the WA Client Hub Windows logon startup task?' $true) {

@@ -8,9 +8,9 @@ try {
   # Daily launch intentionally does not use --build. Build explicitly when source or image changes.
   Invoke-WaCompose @('--env-file', '.env.docker', '-f', 'compose.yml', 'up', '-d', '--wait')
   $origin = Get-WaAppOrigin $envValues
-  $health = Wait-WaHealth $origin
+  $health = Wait-WaHealth 'http://127.0.0.1:3131'
   Write-WaHealthSummary $origin $health
-  if (-not ($health.Health.Ok -and $health.Ready.Ok)) { throw 'The app did not pass both health checks.' }
+  if (-not ($health.Health.Ok -and $health.Ready.Ok)) { throw 'The app did not pass both local health checks.' }
 
   $service = Get-Service cloudflared -ErrorAction SilentlyContinue
   if ($service) {

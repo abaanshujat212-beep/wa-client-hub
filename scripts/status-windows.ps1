@@ -9,12 +9,14 @@ if (Test-Path '.env.docker') { docker compose --env-file .env.docker -f compose.
 
 $values = Read-WaEnvFile '.env.docker'
 $origin = Get-WaAppOrigin $values
-$health = Test-WaEndpoint "$origin/api/health"
-$ready = Test-WaEndpoint "$origin/api/ready"
-Write-Host "`nApp health:    $($health.Status)"
-Write-Host "App readiness: $($ready.Status)"
-Write-Host "Local URL:     http://127.0.0.1:3131"
-Write-Host "Public URL:    $origin"
+$localHealth = Test-WaEndpoint 'http://127.0.0.1:3131/api/health'
+$localReady = Test-WaEndpoint 'http://127.0.0.1:3131/api/ready'
+$publicHealth = Test-WaEndpoint "$origin/api/health"
+Write-Host "`nLocal health:    $($localHealth.Status)"
+Write-Host "Local readiness: $($localReady.Status)"
+Write-Host "Public health:   $($publicHealth.Status)"
+Write-Host "Local URL:       http://127.0.0.1:3131"
+Write-Host "Public URL:      $origin"
 
 Write-Host "`nWindows startup task:"
 & schtasks.exe /Query /TN 'WA Client Hub - Start stack' /FO LIST 2>$null
