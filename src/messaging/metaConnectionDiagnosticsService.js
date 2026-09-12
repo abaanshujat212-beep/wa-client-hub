@@ -1,3 +1,5 @@
+const { normalizeCallingReadiness, unavailableCallingReadiness } = require('./metaCallingReadiness');
+
 class MetaDiagnosticsError extends Error {
   constructor(message, code) { super(message); this.name = 'MetaDiagnosticsError'; this.code = code; }
 }
@@ -21,6 +23,13 @@ class MetaConnectionDiagnosticsService {
       if (String(phone.id) !== target.phoneNumberId) throw new MetaDiagnosticsError('Meta asset verification failed', 'META_DIAGNOSTICS_ASSET_MISMATCH');
       const subscriptions = await this.request(`${target.wabaId}/subscribed_apps?limit=100`, target.accessToken);
       const webhookSubscribed = Array.isArray(subscriptions.data) && subscriptions.data.length > 0;
+      let callingReadiness;
+      try {
+        const settings = await this.request(`${target.phoneNumberId}/settings`, target.accessToken);
+        callingReadiness = normalizeCallingReadiness({ settings, subscriptions });
+      } catch (error) {
+        callingReadiness = unavailableCallingReadiness(error instanceof MetaDiagnosticsError ? error.code : undefined);
+      }
       const result = {
         healthy: webhookSubscribed, tokenStatus: 'valid', webhookSubscribed,
         accountStatus: 'connected', qualityRating: String(phone.quality_rating || '').trim() || null,
@@ -28,7 +37,8 @@ class MetaConnectionDiagnosticsService {
         verifiedName: String(phone.verified_name || '').trim() || null,
         code: webhookSubscribed ? 'META_DIAGNOSTICS_OK' : 'META_WEBHOOK_NOT_SUBSCRIBED',
       };
-      return await this.repository.recordDiagnostics({ ...scope, result });
+      const saved = await this.repository.recordDiagnostics({ ...scope, result });
+      return { ...saved, callingReadiness };
     } catch (error) {
       const code = error instanceof MetaDiagnosticsError ? error.code : 'META_DIAGNOSTICS_UNAVAILABLE';
       await this.repository.recordDiagnostics({ ...scope, result: { healthy: false, tokenStatus: code === 'META_DIAGNOSTICS_AUTH_FAILED' ? 'invalid' : 'unverified', webhookSubscribed: false, accountStatus: 'unknown', qualityRating: null, displayPhoneNumber: null, verifiedName: null, code } });
