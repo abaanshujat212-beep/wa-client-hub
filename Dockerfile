@@ -18,4 +18,4 @@ USER app
 EXPOSE 3131
 HEALTHCHECK --interval=10s --timeout=3s --start-period=20s --retries=5 \
   CMD ["node", "-e", "fetch('http://127.0.0.1:3131/api/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
-CMD ["node", "src/server.js"]
+CMD ["node", "src/main.js"]

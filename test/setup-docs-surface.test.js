@@ -20,6 +20,6 @@ test('example environment uses the neutral callback without secrets', () => {
   const env = read('.env.example');
   assert.ok(env.includes('APP_ORIGIN=https://wa.10xcollab.com'));
   assert.ok(env.includes('GHL_REDIRECT_URI=https://wa.10xcollab.com/oauth/crm/callback'));
-  assert.ok(env.includes('GHL_CLIENT_ID=\n'));
-  assert.ok(env.includes('GHL_CLIENT_SECRET=\n'));
+  assert.match(env, /^GHL_CLIENT_ID=\s*$/m);
+  assert.match(env, /^GHL_CLIENT_SECRET=\s*$/m);
 });
