@@ -5,6 +5,8 @@ ALTER TABLE ghl_installations
 ALTER TABLE users
   ADD COLUMN IF NOT EXISTS password_activation_required BOOLEAN NOT NULL DEFAULT false;
 
+ALTER TABLE ghl_oauth_states ALTER COLUMN workspace_id DROP NOT NULL;
+
 CREATE TABLE IF NOT EXISTS ghl_external_users (
   id TEXT PRIMARY KEY,
   ghl_user_id TEXT NOT NULL,
