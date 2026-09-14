@@ -29,6 +29,7 @@ serverModule.app.use('/api/meta/connections/:connectionId/media', metaSignup.med
 serverModule.app.use('/api/meta/connections', metaSignup.connectionsRouter);
 const metaCalling = createMetaCallingRouter({ enabled: metaCallingEnabled(process.env), env: process.env, store: serverModule.store, origin: appOrigin });
 serverModule.app.use('/api/meta/connections', metaCalling);
+if (serverModule.store.driver === 'postgres' && ghl.marketplaceInstallRouter) prependExactRouter(serverModule.app, '/webhooks/ghl/install', ghl.marketplaceInstallRouter);
 prependExactRouter(serverModule.app, '/webhooks/ghl/events', ghl.eventsRouter);
 prependExactRouter(serverModule.app, '/webhooks/ghl/messages', ghl.messagesRouter);
 
@@ -65,7 +66,7 @@ if (ghl.enabled && ghl.apiRouter && serverModule.store.driver === 'postgres') {
         const mappingReady = Boolean(row.whatsapp_number_id && row.provider_connection_id && row.conversation_provider_id && row.provider_status === 'active');
         return { installationId: row.installation_id, companyId: row.company_id, locationId: row.location_id, workspaceId: row.workspace_id, status: row.status, scopes: row.scopes || [], accessTokenExpiresAt: row.access_token_expires_at, installingGhlUserId: row.installing_ghl_user_id || null, installingGhlRoleType: row.installing_ghl_role_type || null, mappingReady, whatsappNumberId: row.whatsapp_number_id || null, numberLabel: row.number_label || null, numberPhone: row.number_phone || null, providerConnectionId: row.provider_connection_id || null, provider: row.provider || null, providerStatus: row.provider_status || null, conversationProviderId: row.conversation_provider_id || null, automationEnabled: Boolean(row.automation_enabled), oauthReady: row.status === 'active' && scopeReady, ready: row.status === 'active' && scopeReady && mappingReady };
       });
-      res.json({ configured: Boolean(process.env.GHL_CLIENT_ID && process.env.GHL_CLIENT_SECRET && process.env.GHL_REDIRECT_URI), publicOrigin: appOrigin || null, redirectUri: process.env.GHL_REDIRECT_URI || null, requiredScopes, unsupportedScopes: ['conversations.read', 'contacts.read', 'locations.read'], webhooks: { events: `${appOrigin}/webhooks/ghl/events`, messages: `${appOrigin}/webhooks/ghl/messages`, calls: `${appOrigin}/webhooks/ghl/calls` }, installations, mappingCount: installations.filter(item => item.mappingReady).length, ready: Boolean(installations.some(item => item.ready)) });
+      res.json({ configured: Boolean(process.env.GHL_CLIENT_ID && process.env.GHL_CLIENT_SECRET && process.env.GHL_REDIRECT_URI), publicOrigin: appOrigin || null, redirectUri: process.env.GHL_REDIRECT_URI || null, requiredScopes, unsupportedScopes: ['conversations.read', 'contacts.read', 'locations.read'], webhooks: { install: `${appOrigin}/webhooks/ghl/install`, events: `${appOrigin}/webhooks/ghl/events`, messages: `${appOrigin}/webhooks/ghl/messages`, calls: `${appOrigin}/webhooks/ghl/calls` }, installations, mappingCount: installations.filter(item => item.mappingReady).length, ready: Boolean(installations.some(item => item.ready)) });
     } catch { res.status(503).json({ error: 'HighLevel readiness is temporarily unavailable', code: 'GHL_READINESS_UNAVAILABLE' }); }
   });
 }
