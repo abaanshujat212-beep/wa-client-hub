@@ -15,7 +15,7 @@ $taskArguments = "-NoProfile -ExecutionPolicy Bypass -File `"$StartupScript`" -M
 try {
   $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $taskArguments
   $trigger = New-ScheduledTaskTrigger -AtLogOn -User $currentUser
-  $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType InteractiveToken -RunLevel Limited
+  $principal = New-ScheduledTaskPrincipal -UserId $currentUser -LogonType Interactive -RunLevel Limited
   Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
 } catch {
   throw "Could not create the Windows logon task for $currentUser. Windows returned: $($_.Exception.Message). Try an elevated PowerShell once, then rerun this script."

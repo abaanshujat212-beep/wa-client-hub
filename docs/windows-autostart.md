@@ -45,7 +45,7 @@ Install automatic startup for the current Windows user:
 
 ```powershell
 .\scripts\install-windows-autostart.ps1 -Mode docker
-schtasks.exe /Run /TN "WA Client Hub - Start stack"
+Start-ScheduledTask -TaskName "WA Client Hub - Start stack"
 ```
 
 The task starts Docker Desktop if necessary, waits for Docker, and runs:
@@ -81,7 +81,7 @@ Install startup:
 
 ```powershell
 .\scripts\install-windows-autostart.ps1 -Mode pm2
-schtasks.exe /Run /TN "WA Client Hub - Start stack"
+Start-ScheduledTask -TaskName "WA Client Hub - Start stack"
 ```
 
 The PM2 ecosystem now starts `src/main.js`, not the lower-level `src/server.js`, so Meta signup/webhooks and other runtime wiring are loaded.
@@ -93,7 +93,7 @@ pm2 status
 pm2 logs wa-client-hub
 pm2 restart wa-client-hub --update-env
 pm2 save
-schtasks.exe /Delete /TN "WA Client Hub - Start stack" /F
+Unregister-ScheduledTask -TaskName "WA Client Hub - Start stack" -Confirm:$false
 ```
 
 ## Cloudflare Tunnel: temporary test
@@ -108,14 +108,16 @@ Keep that PowerShell window open.
 
 ## Cloudflare Tunnel: persistent automatic startup
 
-A named tunnel requires a Cloudflare account, a domain managed by Cloudflare, and one initial interactive login. Run these once from PowerShell:
+A named tunnel requires a Cloudflare account, a domain managed by Cloudflare, and one initial interactive login.
+
+For a **new** named tunnel, run once:
 
 ```powershell
 cloudflared tunnel login
 cloudflared tunnel create wa-client-hub
 ```
 
-Copy the tunnel UUID printed by the second command. Then configure the hostname, replacing the placeholders:
+Copy the tunnel UUID printed by the second command. Then run:
 
 ```powershell
 .\scripts\setup-cloudflare-tunnel.ps1 `
@@ -124,13 +126,26 @@ Copy the tunnel UUID printed by the second command. Then configure the hostname,
   -Hostname app.example.com
 ```
 
-The script writes `%USERPROFILE%\.cloudflared\config.yml`, creates the DNS route, and prints the service commands. Open **PowerShell as Administrator** and run:
+The script writes `%USERPROFILE%\.cloudflared\config.yml`, creates the DNS route, and automatically configures the existing Windows `cloudflared` service. A UAC prompt may appear because the service runs as `LocalSystem`.
+
+For an **existing** named tunnel, do not run `cloudflared tunnel create`, `cloudflared tunnel route dns`, or `cloudflared tunnel login`. The first-run setup detects `%USERPROFILE%\.cloudflared\config.yml` and runs:
 
 ```powershell
-cloudflared service install
-Set-Service cloudflared -StartupType Automatic
-Start-Service cloudflared
-Get-Service cloudflared
+.\scripts\ensure-cloudflare-service.ps1
+```
+
+That helper:
+
+1. Reads the existing tunnel UUID and credentials path.
+2. Verifies that the credential belongs to the configured tunnel.
+3. Copies the existing credential and config into the Windows service profile.
+4. Configures `cloudflared` for automatic startup.
+5. Starts or refreshes the service without changing the tunnel or DNS route.
+
+You can rerun it manually from the repository directory:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\ensure-cloudflare-service.ps1
 ```
 
 The named tunnel then starts with Windows and forwards:
@@ -163,20 +178,23 @@ Do not expose PostgreSQL, Redis, Docker, RDP, or Cloudflared credentials publicl
 ```powershell
 # Docker
 Get-Service com.docker.service
-Docker info
+docker info
 docker compose --env-file .env.docker ps
-docker compose --env-file .env.docker logs -f app postgres redis
+docker compose --env-file .env.docker logs app postgres redis
 
 # App readiness
 curl.exe http://127.0.0.1:3131/api/health
 curl.exe http://127.0.0.1:3131/api/ready
 
 # Startup task
-schtasks.exe /Query /TN "WA Client Hub - Start stack" /V /FO LIST
+Get-ScheduledTask -TaskName "WA Client Hub - Start stack"
 
 # Cloudflare
 cloudflared tunnel list
 Get-Service cloudflared
+Get-CimInstance Win32_Service -Filter "Name='cloudflared'" |
+  Select-Object State, StartMode, PathName
+Invoke-WebRequest https://app.example.com/api/ready
 ```
 
 If Docker mode and PM2 mode are both started, stop one app owner first. The expected symptom of a conflict is `EADDRINUSE` on port 3131.
