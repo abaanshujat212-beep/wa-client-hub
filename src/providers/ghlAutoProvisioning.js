@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const express = require('express');
 const base = require('./ghlPrivatePilotHardened');
 const { OFFICIAL_SCOPES, officialScopes } = require('./ghlContract');
+const { GhlMarketplaceInstallService, createGhlMarketplaceInstallRouter } = require('./ghlMarketplaceInstall');
 
 function stableId(installationId, locationId) {
   return `ghl-installation-${crypto.createHash('sha256').update(`${installationId}:${locationId}`).digest('hex').slice(0, 40)}`;
@@ -128,6 +129,8 @@ function createGhlAutoProvisioningRuntime({ store, env = process.env, fetchImpl 
   if (!runtime.enabled) return runtime;
   const config = base.config(env);
   const service = new GhlProvisioningService({ pool: store.repository.pool, vault: runtime.repository.vault, env });
+  const marketplaceInstall = new GhlMarketplaceInstallService({ pool: store.repository.pool, env });
+  const marketplaceInstallRouter = createGhlMarketplaceInstallRouter({ service: marketplaceInstall, env });
   const oauthRouter = express.Router();
   oauthRouter.get('/start', async (req, res) => {
     try {
@@ -139,19 +142,26 @@ function createGhlAutoProvisioningRuntime({ store, env = process.env, fetchImpl 
   });
   oauthRouter.get('/callback', async (req, res) => {
     try {
-      const state = await service.claimState(String(req.query.state || ''));
-      if (!state) return res.status(400).json({ error: 'HighLevel OAuth state is expired or already used' });
-      const token = await runtime.client.exchangeCode(String(req.query.code || ''));
+      const rawState = String(req.query.state || '').trim();
+      const state = rawState ? await service.claimState(rawState) : null;
+      if (rawState && !state) return res.status(400).json({ error: 'HighLevel OAuth state is expired or already used' });
+      const code = String(req.query.code || '').trim();
+      if (!code) return res.status(400).json({ error: 'HighLevel OAuth callback code is required' });
+      const token = await runtime.client.exchangeCode(code);
       const granted = token.scopes?.length ? token.scopes : config.requiredScopes;
       if (config.requiredScopes.some(scope => !granted.includes(scope))) return res.status(400).json({ error: 'HighLevel OAuth scopes are insufficient', code: 'GHL_SCOPES_INSUFFICIENT' });
       const profile = await fetchUserProfile(runtime.client, token.accessToken, token.userId, fetchImpl);
       const identity = normalizeIdentity({ token, profile });
-      const result = await service.provision({ identity, token, grantedScopes: officialScopes(granted.join(' ')), fallbackUserId: state.user_id });
+      if (!state) {
+        const correlated = await marketplaceInstall.claim(identity);
+        if (!correlated) throw Object.assign(new Error('The signed HighLevel App Install event has not been received for this exact app, company, location, and user'), { code: 'GHL_MARKETPLACE_INSTALL_NOT_CORRELATED', status: 409 });
+      }
+      await service.provision({ identity, token, grantedScopes: officialScopes(granted.join(' ')), fallbackUserId: state?.user_id || null });
       const destination = config.appOrigin ? `${config.appOrigin.replace(/\/$/, '')}/settings/integrations?ghl=connected` : '/';
       res.redirect(destination);
     } catch (error) { res.status(error.status || 503).json({ error: error.message, code: error.code || 'GHL_OAUTH_CALLBACK_FAILED' }); }
   });
-  return { ...runtime, oauthRouter, provisioning: service };
+  return { ...runtime, oauthRouter, provisioning: service, marketplaceInstall, marketplaceInstallRouter };
 }
 
 module.exports = { GhlProvisioningService, ROLE_MAP, mapGhlRole, normalizeIdentity, fetchUserProfile, stableId, createGhlAutoProvisioningRuntime };
