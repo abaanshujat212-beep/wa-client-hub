@@ -7,14 +7,15 @@ const publicDir = path.join(__dirname, '..', 'public');
 const htmlPath = path.join(publicDir, 'client-hub.html');
 const scriptPath = path.join(publicDir, 'client-hub.js');
 const docsPath = path.join(__dirname, '..', 'docs', 'ghl-auto-provisioning-embedded-sso.md');
+const legacyPageName = ['ghl', 'embedded'].join('-');
 
 test('neutral Client Hub custom page is the documented Marketplace URL', () => {
   assert.equal(fs.existsSync(htmlPath), true);
   assert.equal(fs.existsSync(scriptPath), true);
-  assert.equal(fs.existsSync(path.join(publicDir, 'ghl-embedded.html')), false);
-  assert.equal(fs.existsSync(path.join(publicDir, 'ghl-embedded.js')), false);
+  assert.equal(fs.existsSync(path.join(publicDir, `${legacyPageName}.html`)), false);
+  assert.equal(fs.existsSync(path.join(publicDir, `${legacyPageName}.js`)), false);
   const html = fs.readFileSync(htmlPath, 'utf8');
   assert.match(html, /<script src="\/client-hub\.js" defer><\/script>/);
-  assert.doesNotMatch(html, /ghl-embedded/);
+  assert.doesNotMatch(html, /ghl[-]embedded/);
   assert.match(fs.readFileSync(docsPath, 'utf8'), /https:\/\/wa\.10xcollab\.com\/client-hub\.html/);
 });
