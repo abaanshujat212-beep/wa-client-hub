@@ -8,9 +8,13 @@ $ErrorActionPreference = 'Stop'
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = [Security.Principal.WindowsPrincipal]::new($identity)
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+  Write-Host 'Requesting administrator permission to configure the Windows cloudflared service...' -ForegroundColor Yellow
   $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -ConfigPath `"$ConfigPath`""
   $elevated = Start-Process powershell.exe -Verb RunAs -ArgumentList $arguments -Wait -PassThru
-  exit $elevated.ExitCode
+  if ($elevated.ExitCode -ne 0) {
+    throw "The elevated Cloudflare service setup exited with code $($elevated.ExitCode)."
+  }
+  exit 0
 }
 
 if (-not (Get-Command cloudflared -ErrorAction SilentlyContinue)) {
@@ -25,16 +29,18 @@ if (-not (Test-Path -LiteralPath $configPath)) {
 $configLines = Get-Content -LiteralPath $configPath
 $tunnelLine = $configLines | Where-Object { $_ -match '^\s*tunnel\s*:' } | Select-Object -First 1
 $credentialsLine = $configLines | Where-Object { $_ -match '^\s*credentials-file\s*:' } | Select-Object -First 1
+$tunnelMatch = [regex]::Match([string]$tunnelLine, '^\s*tunnel\s*:\s*(?<id>[0-9a-fA-F-]{36})\s*$')
+$credentialsMatch = [regex]::Match([string]$credentialsLine, '^\s*credentials-file\s*:\s*(?<path>.+?)\s*$')
 
-if (-not $tunnelLine -or $tunnelLine -notmatch '^\s*tunnel\s*:\s*(?<id>[0-9a-fA-F-]{36})\s*$') {
+if (-not $tunnelMatch.Success) {
   throw "The Cloudflare config does not contain a valid tunnel UUID: $configPath"
 }
-if (-not $credentialsLine -or $credentialsLine -notmatch '^\s*credentials-file\s*:\s*(?<path>.+?)\s*$') {
+if (-not $credentialsMatch.Success) {
   throw "The Cloudflare config does not contain credentials-file: $configPath"
 }
 
-$tunnelId = $Matches['id']
-$sourceCredentials = $Matches['path'].Trim().Trim('"').Trim("'")
+$tunnelId = $tunnelMatch.Groups['id'].Value
+$sourceCredentials = $credentialsMatch.Groups['path'].Value.Trim().Trim('"').Trim("'")
 if (-not [IO.Path]::IsPathRooted($sourceCredentials)) {
   $sourceCredentials = Join-Path (Split-Path -Parent $configPath) $sourceCredentials
 }
@@ -52,29 +58,34 @@ if ($credentialData.TunnelID -and $credentialData.TunnelID -ne $tunnelId) {
 $systemCloudflared = Join-Path $env:WINDIR 'System32\config\systemprofile\.cloudflared'
 $systemCredentials = Join-Path $systemCloudflared "$tunnelId.json"
 $systemConfig = Join-Path $systemCloudflared 'config.yml'
-
 $service = Get-Service cloudflared -ErrorAction SilentlyContinue
-if ($service) { Stop-Service cloudflared -ErrorAction SilentlyContinue }
+$wasRunning = $service -and $service.Status -eq 'Running'
 
-New-Item -ItemType Directory -Force -Path $systemCloudflared | Out-Null
-Copy-Item -LiteralPath $sourceCredentials -Destination $systemCredentials -Force
+try {
+  New-Item -ItemType Directory -Force -Path $systemCloudflared | Out-Null
+  Copy-Item -LiteralPath $sourceCredentials -Destination $systemCredentials -Force
 
-$updatedConfig = foreach ($line in $configLines) {
-  if ($line -match '^\s*credentials-file\s*:') {
-    "credentials-file: $systemCredentials"
-  } else {
-    $line
+  $updatedConfig = foreach ($line in $configLines) {
+    if ($line -match '^\s*credentials-file\s*:') {
+      "credentials-file: $systemCredentials"
+    } else {
+      $line
+    }
   }
-}
-Set-Content -LiteralPath $systemConfig -Value $updatedConfig -Encoding UTF8
+  Set-Content -LiteralPath $systemConfig -Value $updatedConfig -Encoding UTF8
 
-if (-not $service) {
-  & cloudflared service install
-  if ($LASTEXITCODE -ne 0) { throw "cloudflared service install failed with exit code $LASTEXITCODE." }
-}
+  if ($service) { Stop-Service cloudflared -ErrorAction SilentlyContinue }
+  if (-not $service) {
+    & cloudflared service install
+    if ($LASTEXITCODE -ne 0) { throw "cloudflared service install failed with exit code $LASTEXITCODE." }
+  }
 
-Set-Service cloudflared -StartupType Automatic
-Start-Service cloudflared
+  Set-Service cloudflared -StartupType Automatic
+  Start-Service cloudflared
+} catch {
+  if ($wasRunning) { Start-Service cloudflared -ErrorAction SilentlyContinue }
+  throw
+}
 
 Write-Host "Configured the existing tunnel $tunnelId for the Windows cloudflared service." -ForegroundColor Green
 Write-Host "Service config: $systemConfig"
