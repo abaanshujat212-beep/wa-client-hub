@@ -61,8 +61,7 @@ jobs:
           printf '%s\n' "$output"
           if [ "$status" -ne 0 ] && [ -n "$PR_NUMBER" ]; then
             body=$(printf 'Temporary CI diagnostic for run %s:\n\n%s' "$GITHUB_RUN_ID" "$output" | tail -c 12000)
-            payload=$(jq -n --arg body "$body" '{body:$body}')
-            curl -sS -X POST "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' -d "$payload" >/dev/null || true
+            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$body" || true
           fi
           exit "$status"
   postgres-templates:
