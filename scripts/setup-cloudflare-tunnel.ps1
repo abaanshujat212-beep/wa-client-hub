@@ -31,8 +31,10 @@ Set-Content -Path $configPath -Value $config -Encoding UTF8
 & cloudflared tunnel route dns $TunnelName $Hostname
 if ($LASTEXITCODE -ne 0) { throw 'Cloudflare DNS route failed.' }
 
+$serviceScript = Join-Path $PSScriptRoot 'ensure-cloudflare-service.ps1'
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $serviceScript -ConfigPath $configPath
+if ($LASTEXITCODE -ne 0) { throw 'Cloudflare service bootstrap failed after the tunnel config was written.' }
+
 Write-Host "Wrote $configPath" -ForegroundColor Green
-Write-Host 'Install the tunnel as an automatic Windows service from an elevated PowerShell:' -ForegroundColor Yellow
-Write-Host '  cloudflared service install'
-Write-Host '  Set-Service cloudflared -StartupType Automatic'
-Write-Host '  Start-Service cloudflared'
+Write-Host "Configured the existing Windows cloudflared service for $Hostname" -ForegroundColor Green
+Write-Host 'The tunnel and DNS route were created once; rerunning this script refreshes the local service configuration.'
