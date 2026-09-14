@@ -16,6 +16,8 @@ The signed webhook is stored as a short-lived, one-time correlation record conta
 
 The correlation is exact on app, company, location, and GHL user. A missing, stale, replayed, mismatched, or unsigned event fails closed. `GHL_APP_ID` must be configured before accepting first Marketplace installs.
 
+For a private, time-bounded test before the App Install webhook is available, `GHL_ALLOW_UNCORRELATED_FIRST_INSTALL=true` permits first-install provisioning from token-derived HighLevel company, location, and user identity. This reduces install-correlation protection and must remain `false` for Marketplace production installs.
+
 ## OAuth flows
 
 ### Existing WA Client Hub reconnect

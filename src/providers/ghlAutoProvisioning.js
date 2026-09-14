@@ -2,7 +2,7 @@ const crypto = require('node:crypto');
 const bcrypt = require('bcryptjs');
 const express = require('express');
 const base = require('./ghlPrivatePilotHardened');
-const { OFFICIAL_SCOPES, officialScopes } = require('./ghlContract');
+const { OFFICIAL_SCOPES, grantedScopes } = require('./ghlContract');
 const { GhlMarketplaceInstallService, createGhlMarketplaceInstallRouter } = require('./ghlMarketplaceInstall');
 
 function stableId(installationId, locationId) {
@@ -17,6 +17,9 @@ const ROLE_MAP = Object.freeze({
 function mapGhlRole(roleType) {
   const key = String(roleType || '').trim().toLowerCase();
   return { internalRole: ROLE_MAP[key] || 'agent', mapped: Boolean(ROLE_MAP[key]), source: key || null };
+}
+function requiresMarketplaceInstallCorrelation(env = process.env) {
+  return String(env.GHL_ALLOW_UNCORRELATED_FIRST_INSTALL || '').trim().toLowerCase() !== 'true';
 }
 function normalizeIdentity({ token, profile, installationHint } = {}) {
   const locationId = String(token?.locationId || profile?.locationId || '').trim();
@@ -152,11 +155,11 @@ function createGhlAutoProvisioningRuntime({ store, env = process.env, fetchImpl 
       if (config.requiredScopes.some(scope => !granted.includes(scope))) return res.status(400).json({ error: 'HighLevel OAuth scopes are insufficient', code: 'GHL_SCOPES_INSUFFICIENT' });
       const profile = await fetchUserProfile(runtime.client, token.accessToken, token.userId, fetchImpl);
       const identity = normalizeIdentity({ token, profile });
-      if (!state) {
+      if (!state && requiresMarketplaceInstallCorrelation(env)) {
         const correlated = await marketplaceInstall.claim(identity);
         if (!correlated) throw Object.assign(new Error('The signed HighLevel App Install event has not been received for this exact app, company, location, and user'), { code: 'GHL_MARKETPLACE_INSTALL_NOT_CORRELATED', status: 409 });
       }
-      await service.provision({ identity, token, grantedScopes: officialScopes(granted.join(' ')), fallbackUserId: state?.user_id || null });
+      await service.provision({ identity, token, grantedScopes: grantedScopes(granted.join(' ')), fallbackUserId: state?.user_id || null });
       const destination = config.appOrigin ? `${config.appOrigin.replace(/\/$/, '')}/settings/integrations?ghl=connected` : '/';
       res.redirect(destination);
     } catch (error) { res.status(error.status || 503).json({ error: error.message, code: error.code || 'GHL_OAUTH_CALLBACK_FAILED' }); }
@@ -164,4 +167,4 @@ function createGhlAutoProvisioningRuntime({ store, env = process.env, fetchImpl 
   return { ...runtime, oauthRouter, provisioning: service, marketplaceInstall, marketplaceInstallRouter };
 }
 
-module.exports = { GhlProvisioningService, ROLE_MAP, mapGhlRole, normalizeIdentity, fetchUserProfile, stableId, createGhlAutoProvisioningRuntime };
+module.exports = { GhlProvisioningService, ROLE_MAP, mapGhlRole, requiresMarketplaceInstallCorrelation, normalizeIdentity, fetchUserProfile, stableId, createGhlAutoProvisioningRuntime };
