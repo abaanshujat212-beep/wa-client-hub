@@ -5,7 +5,6 @@ on:
     branches: [main]
 permissions:
   contents: read
-  pull-requests: write
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -50,24 +49,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Run PostgreSQL integration tests
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-        run: |
-          set +e
-          output=$(node --test --test-force-exit --test-concurrency=1 test/postgres-integration.test.js test/canonical-send-postgres.test.js test/meta-signup-postgres.test.js test/legacy-delta-postgres.test.js test/meta-signup-routes-postgres.test.js test/meta-signup-runtime-postgres.test.js test/meta-webhook-postgres.test.js test/meta-media-retention-postgres.test.js test/ycloud-webhook-postgres.test.js test/message-policy-postgres.test.js test/ghl-private-pilot-postgres.test.js test/ghl-provisioning-postgres.test.js 2>&1)
-          status=$?
-          printf '%s\n' "$output"
-          if [ "$status" -ne 0 ]; then
-            while IFS= read -r line; do echo "::error title=PostgreSQL test failure::$line"; done <<< "$output"
-            if [ -n "$PR_NUMBER" ]; then
-              body=$(printf 'Temporary CI diagnostic for run %s:\n\n%s' "$GITHUB_RUN_ID" "$output" | tail -c 12000)
-              gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body "$body" || true
-            fi
-          fi
-          exit "$status"
+      - run: node --test --test-force-exit --test-concurrency=1 test/postgres-integration.test.js test/canonical-send-postgres.test.js test/meta-signup-postgres.test.js test/legacy-delta-postgres.test.js test/meta-signup-routes-postgres.test.js test/meta-signup-runtime-postgres.test.js test/meta-webhook-postgres.test.js test/meta-media-retention-postgres.test.js test/ycloud-webhook-postgres.test.js test/message-policy-postgres.test.js test/ghl-private-pilot-postgres.test.js test/ghl-provisioning-postgres.test.js
   postgres-templates:
     name: PostgreSQL official templates
     runs-on: ubuntu-latest
