@@ -12,6 +12,8 @@ test('browser accepts exact Meta origins and Cloud API FINISH assets only', () =
 });
 test('launcher uses code flow without browser token persistence or logging', () => {
   const source = fs.readFileSync(path.resolve(__dirname, '../public/meta-signup.js'), 'utf8');
-  assert.match(source, /config_id:config\.configId/); assert.match(source, /response_type:'code'/);
+  assert.match(source, /factory\(root\)/);
+  assert.match(source, /function \(root\)/);
+  assert.match(source, /config_id:\s*config\.configId/); assert.match(source, /response_type:\s*["']code["']/);
   assert.doesNotMatch(source, /localStorage|sessionStorage|console\./); assert.match(source, /Messaging remains disabled/);
 });
