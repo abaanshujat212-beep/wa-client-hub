@@ -49,7 +49,7 @@ If GHL does not provide a user email, a secure fallback uses the signed-in WA Cl
 
 ## Embedded SSO
 
-The custom page is `/ghl-embedded.html`. It posts a short-lived HS256 assertion to `/api/ghl/embedded/session`. Configure `GHL_EMBEDDED_SIGNING_SECRET` only when the Marketplace/custom-page integration is configured to produce the corresponding signed context. Assertions require `locationId`, `userId`, `nonce`, `iat`, and `exp`; the server checks the exact location installation, external user link, workspace membership, expiry, and nonce replay before creating a 30-minute WA Client Hub session.
+The Marketplace Custom Page Live URL is `https://wa.10xcollab.com/client-hub.html`. It posts a short-lived HS256 assertion to `/api/ghl/embedded/session`. Configure `GHL_EMBEDDED_SIGNING_SECRET` only when the Marketplace/custom-page integration is configured to produce the corresponding signed context. Assertions require `locationId`, `userId`, `nonce`, `iat`, and `exp`; the server checks the exact location installation, external user link, workspace membership, expiry, and nonce replay before creating a 30-minute WA Client Hub session.
 
 Raw browser `locationId`, `userId`, role, workspace, and number parameters are never authorization assertions.
 
@@ -67,7 +67,7 @@ The current branch adds assignment controls to the existing dashboard. Provider 
 
 - Configure `GHL_APP_ID` with the official HighLevel Marketplace App ID.
 - Configure the Marketplace App Install webhook at `/webhooks/ghl/install` and keep the existing signed webhook verification key in `GHL_PUBLIC_KEY`.
-- Configure the Marketplace custom page to load `/ghl-embedded.html`.
+- Configure the Marketplace Custom Page Live URL as `https://wa.10xcollab.com/client-hub.html`.
 - Configure the official GHL signed-context mechanism and set `GHL_EMBEDDED_SIGNING_SECRET` in the server secret store.
 - Run `npm run db:migrate`.
 - Complete one real private install and confirm the exact location, company, user, membership, mapping, and activation behavior.
