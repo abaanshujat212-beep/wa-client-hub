@@ -49,7 +49,22 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: node --test --test-force-exit --test-concurrency=1 test/postgres-integration.test.js test/canonical-send-postgres.test.js test/meta-signup-postgres.test.js test/legacy-delta-postgres.test.js test/meta-signup-routes-postgres.test.js test/meta-signup-runtime-postgres.test.js test/meta-webhook-postgres.test.js test/meta-media-retention-postgres.test.js test/ycloud-webhook-postgres.test.js test/message-policy-postgres.test.js test/ghl-private-pilot-postgres.test.js test/ghl-provisioning-postgres.test.js
+      - name: Run PostgreSQL integration tests
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set +e
+          output=$(node --test --test-force-exit --test-concurrency=1 test/postgres-integration.test.js test/canonical-send-postgres.test.js test/meta-signup-postgres.test.js test/legacy-delta-postgres.test.js test/meta-signup-routes-postgres.test.js test/meta-signup-runtime-postgres.test.js test/meta-webhook-postgres.test.js test/meta-media-retention-postgres.test.js test/ycloud-webhook-postgres.test.js test/message-policy-postgres.test.js test/ghl-private-pilot-postgres.test.js test/ghl-provisioning-postgres.test.js 2>&1)
+          status=$?
+          printf '%s\n' "$output"
+          if [ "$status" -ne 0 ] && [ -n "$PR_NUMBER" ]; then
+            body=$(printf 'Temporary CI diagnostic for run %s:\n\n%s' "$GITHUB_RUN_ID" "$output" | tail -c 12000)
+            payload=$(jq -n --arg body "$body" '{body:$body}')
+            curl -sS -X POST "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" -H "Authorization: Bearer ${GH_TOKEN}" -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2022-11-28' -d "$payload" >/dev/null || true
+          fi
+          exit "$status"
   postgres-templates:
     name: PostgreSQL official templates
     runs-on: ubuntu-latest
