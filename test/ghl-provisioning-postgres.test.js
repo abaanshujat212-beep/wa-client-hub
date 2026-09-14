@@ -4,6 +4,7 @@ const crypto = require('node:crypto');
 const { Pool } = require('pg');
 const { runMigrations } = require('../src/db/migrate');
 const { GhlProvisioningService } = require('../src/providers/ghlAutoProvisioning');
+const { GhlMarketplaceInstallService } = require('../src/providers/ghlMarketplaceInstall');
 
 const connectionString = process.env.TEST_DATABASE_URL;
 async function fixture() {
@@ -45,5 +46,18 @@ test('assignment constraints allow many users per number but one active number p
     await db.pool.query("UPDATE whatsapp_number_assignments SET removed_at=now() WHERE id='a1'");
     await db.pool.query("INSERT INTO whatsapp_number_assignments(id,workspace_id,whatsapp_number_id,user_id) VALUES('a3','w1','n2','u1')");
     assert.equal((await db.pool.query("SELECT count(*)::int AS n FROM whatsapp_number_assignments WHERE workspace_id='w1' AND removed_at IS NULL")).rows[0].n, 2);
+  } finally { await db.close(); }
+});
+
+test('official App Install webhook is exact and one-time correlated', { skip: !connectionString, timeout: 60000 }, async () => {
+  const db = await fixture();
+  try {
+    const service = new GhlMarketplaceInstallService({ pool: db.pool, env: { GHL_APP_ID: 'app-1' } });
+    await service.record({ type:'INSTALL', appId:'app-1', versionId:'v1', installType:'Location', companyId:'agency-1', locationId:'location-3', userId:'ghl-user-3', webhookId:'webhook-1', timestamp:new Date().toISOString() });
+    const identity = { companyId:'agency-1', locationId:'location-3', ghlUserId:'ghl-user-3' };
+    const first = await service.claim(identity, { waitMs: 0 });
+    assert.equal(first.webhook_id, 'webhook-1');
+    assert.equal(await service.claim(identity, { waitMs: 0 }), null);
+    assert.equal(await service.claim({ ...identity, locationId:'other-location' }, { waitMs: 0 }), null);
   } finally { await db.close(); }
 });
