@@ -39,8 +39,8 @@ test('assignment constraints allow many users per number but one active number p
     await db.pool.query("INSERT INTO users(id,name,email,password_hash,role) VALUES('u1','One','one@example.test','x','client'),('u2','Two','two@example.test','x','client')");
     await db.pool.query("INSERT INTO workspaces(id,owner_id,name,plan_id) VALUES('w1','u1','Workspace','team')");
     await db.pool.query("INSERT INTO workspace_members(id,workspace_id,user_id,role) VALUES('m1','w1','u1','owner'),('m2','w1','u2','agent')");
-    await db.pool.query("INSERT INTO provider_connections(id,workspace_id,provider,label,status) VALUES('p1','w1','whatsapp_cloud','Meta','active')");
-    await db.pool.query("INSERT INTO whatsapp_numbers(id,owner_id,workspace_id,label,phone,provider_connection_id) VALUES('n1','u1','w1','One','+923001111111','p1'),('n2','u1','w1','Two','+923002222222','p1')");
+    await db.pool.query("INSERT INTO provider_connections(id,workspace_id,provider,label,status) VALUES('p1','w1','whatsapp_cloud','Meta','active'),('p2','w1','ycloud','YCloud','active')");
+    await db.pool.query("INSERT INTO whatsapp_numbers(id,owner_id,workspace_id,label,phone,provider_connection_id) VALUES('n1','u1','w1','One','+923001111111','p1'),('n2','u1','w1','Two','+923002222222','p2')");
     await db.pool.query("INSERT INTO whatsapp_number_assignments(id,workspace_id,whatsapp_number_id,user_id) VALUES('a1','w1','n1','u1'),('a2','w1','n1','u2')");
     await assert.rejects(db.pool.query("INSERT INTO whatsapp_number_assignments(id,workspace_id,whatsapp_number_id,user_id) VALUES('a3','w1','n2','u1')"), error => error.code === '23505');
     await db.pool.query("UPDATE whatsapp_number_assignments SET removed_at=now() WHERE id='a1'");
