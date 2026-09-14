@@ -20,7 +20,19 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: node --test --test-force-exit --test-concurrency=1
+      - name: Run unit tests with diagnostics
+        shell: bash
+        run: |
+          set +e
+          output=$(node --test --test-force-exit --test-concurrency=1 2>&1)
+          status=$?
+          printf '%s\n' "$output"
+          if [ "$status" -ne 0 ]; then
+            details=$(printf '%s\n' "$output" | awk '/not ok/{show=1; count=0} show{print; count++} show && count >= 25{show=0}' | tail -n 100)
+            message=$(printf '%s\n' "$details" | sed -e 's/%/%25/g' -e 's/\r/%0D/g' -e 's/\n/%0A/g')
+            echo "::error title=Unit test failure::$message"
+            exit "$status"
+          fi
   postgres:
     name: PostgreSQL integration
     runs-on: ubuntu-latest
