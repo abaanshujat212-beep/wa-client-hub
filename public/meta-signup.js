@@ -13,8 +13,8 @@
       var m = typeof value === "string" ? JSON.parse(value) : value;
       if (!m || m.type !== "WA_EMBEDDED_SIGNUP" || typeof m.event !== "string")
         return null;
-      if (m.event === "CANCEL" || m.event === "ERROR")
-        return { kind: "cancel" };
+      if (m.event === "CANCEL") return { kind: "cancel" };
+      if (m.event === "ERROR") return { kind: "error" };
       if (m.event !== "FINISH") return null;
       var d = m.data || {};
       if (
@@ -134,12 +134,17 @@
       if (r.kind === "finish") {
         attempt.assets = r;
         void finish();
-      } else
-        void abandon(
-          r.kind === "cancel"
-            ? "Signup canceled."
-            : "This onboarding result is not supported.",
-        );
+      } else if (r.kind === "cancel") {
+        // Meta can emit an intermediate CANCEL before its OAuth dialog has
+        // returned. The FB.login callback is the terminal authority: deleting
+        // the durable state here races a later FINISH/code pair.
+        attempt.cancelReported = true;
+        say("Finish the Meta popup, or close it to cancel signup.");
+      } else if (r.kind === "error") {
+        void abandon("Meta signup returned an error. Start a new signup.");
+      } else {
+        void abandon("This onboarding result is not supported.");
+      }
     });
     function sdk() {
       return new Promise(function (resolve, reject) {
@@ -179,6 +184,7 @@
           code: null,
           assets: null,
           submitting: false,
+          cancelReported: false,
         };
         cancel.classList.remove("hidden");
         say("Complete the Meta popup.");
@@ -193,6 +199,7 @@
           },
           {
             config_id: config.configId,
+            auth_type: "rerequest",
             response_type: "code",
             override_default_response_type: true,
             extras: { setup: {} },

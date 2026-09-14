@@ -8,6 +8,7 @@ test('browser accepts exact Meta origins and Cloud API FINISH assets only', () =
   assert.deepEqual(parseMessage('https://www.facebook.com', data), { kind: 'finish', businessAccountId: '123', phoneNumberId: '456' });
   assert.equal(parseMessage('https://www.facebook.com.evil.test', data), null);
   assert.deepEqual(parseMessage('https://web.facebook.com', JSON.stringify({ ...data, event: 'CANCEL' })), { kind: 'cancel' });
+  assert.deepEqual(parseMessage('https://www.facebook.com', { ...data, event: 'ERROR' }), { kind: 'error' });
   assert.deepEqual(FACEBOOK_ORIGINS, ['https://www.facebook.com', 'https://web.facebook.com']);
 });
 test('launcher uses code flow without browser token persistence or logging', () => {
@@ -15,5 +16,7 @@ test('launcher uses code flow without browser token persistence or logging', () 
   assert.match(source, /factory\(root\)/);
   assert.match(source, /function \(root\)/);
   assert.match(source, /config_id:\s*config\.configId/); assert.match(source, /response_type:\s*["']code["']/);
+  assert.match(source, /auth_type:\s*["']rerequest["']/);
+  assert.match(source, /attempt\.cancelReported\s*=\s*true/);
   assert.doesNotMatch(source, /localStorage|sessionStorage|console\./); assert.match(source, /Messaging remains disabled/);
 });
