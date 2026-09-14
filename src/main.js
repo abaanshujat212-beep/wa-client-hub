@@ -2,7 +2,9 @@ require('dotenv').config();
 const serverModule = require('./server');
 const { createGhlPrivatePilotRuntime } = require('./providers/ghlPrivatePilotHardened');
 const { createGhlInboundBridge } = require('./providers/ghlInboundBridge');
+const { createGhlCallRouter, enabled: ghlCallingEnabled } = require('./providers/ghlCallProvider');
 const { createMetaSignupRuntime } = require('./messaging/metaSignupRuntime');
+const { createMetaCallingRouter, enabled: metaCallingEnabled } = require('./messaging/metaCallingRoutes');
 const { createMetaWebhookRuntime } = require('./messaging/metaWebhookRuntime');
 const { createYCloudWebhookRuntime } = require('./messaging/ycloudWebhookRuntime');
 const { prependExactRouter } = require('./messaging/prependExactRouter');
@@ -14,6 +16,8 @@ if (!process.env.GHL_REDIRECT_URI && appOrigin) process.env.GHL_REDIRECT_URI = `
 const ghl = createGhlPrivatePilotRuntime({ env: process.env, store: serverModule.store });
 const ghlInbound = ghl.enabled ? createGhlInboundBridge({ pool: serverModule.store.repository.pool, deliverInboundWhatsApp: ghl.deliverInboundWhatsApp }) : null;
 const inbound = ghlInbound ? ghlInbound.deliver.bind(ghlInbound) : null;
+const ghlCalls = createGhlCallRouter({ enabled: ghlCallingEnabled(process.env), pool: serverModule.store.repository.pool, publicKey: process.env.GHL_PUBLIC_KEY });
+prependExactRouter(serverModule.app, '/webhooks/ghl/calls', ghlCalls);
 const metaWebhook = createMetaWebhookRuntime({ env: process.env, store: serverModule.store, onInboundMessage: inbound });
 prependExactRouter(serverModule.app, '/webhooks/meta/whatsapp', metaWebhook.router);
 const ycloudWebhook = createYCloudWebhookRuntime({ env: process.env, store: serverModule.store, onInboundMessage: inbound });
@@ -23,6 +27,8 @@ serverModule.app.use('/api/meta/signup', metaSignup.router);
 serverModule.app.use('/api/meta/connections/:connectionId/templates', metaSignup.templatesRouter);
 serverModule.app.use('/api/meta/connections/:connectionId/media', metaSignup.mediaRouter);
 serverModule.app.use('/api/meta/connections', metaSignup.connectionsRouter);
+const metaCalling = createMetaCallingRouter({ enabled: metaCallingEnabled(process.env), env: process.env, store: serverModule.store, origin: appOrigin });
+serverModule.app.use('/api/meta/connections', metaCalling);
 prependExactRouter(serverModule.app, '/webhooks/ghl/events', ghl.eventsRouter);
 prependExactRouter(serverModule.app, '/webhooks/ghl/messages', ghl.messagesRouter);
 
@@ -83,7 +89,8 @@ if (ghl.enabled && ghl.apiRouter && serverModule.store.driver === 'postgres') {
         unsupportedScopes: ['conversations.read', 'contacts.read', 'locations.read'],
         webhooks: {
           events: `${appOrigin}/webhooks/ghl/events`,
-          messages: `${appOrigin}/webhooks/ghl/messages`
+          messages: `${appOrigin}/webhooks/ghl/messages`,
+          calls: `${appOrigin}/webhooks/ghl/calls`
         },
         installations,
         mappingCount: installations.filter(item => item.mappingReady).length,
@@ -129,4 +136,4 @@ async function runMain() {
 }
 
 if (require.main === module) runMain().catch(error => { console.error(error.message); process.exit(1); });
-module.exports = { ...serverModule, metaSignup, metaWebhook, ycloudWebhook, ghl, ghlInbound, runMain };
+module.exports = { ...serverModule, metaSignup, metaWebhook, ycloudWebhook, metaCalling, ghl, ghlInbound, ghlCalls, runMain };
