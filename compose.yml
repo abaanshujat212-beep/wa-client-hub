@@ -52,7 +52,8 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-wa_hub}
       POSTGRES_USER: ${POSTGRES_USER:-wa_hub}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
-    volumes: [postgres_data:/var/lib/postgresql/data]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
     networks: [data]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
@@ -60,10 +61,12 @@ services:
       timeout: 3s
       retries: 12
     restart: unless-stopped
+
   redis:
     image: redis:7.4.5-bookworm
     command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
-    volumes: [redis_data:/data]
+    volumes:
+      - redis_data:/data
     networks: [data]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
@@ -71,11 +74,15 @@ services:
       timeout: 3s
       retries: 12
     restart: unless-stopped
+
   openwa:
-    build: { context: ., dockerfile: Dockerfile.openwa }
+    build:
+      context: .
+      dockerfile: Dockerfile.openwa
     profiles: [openwa]
     init: true
-    ports: ["127.0.0.1:8080:8080"]
+    ports:
+      - "127.0.0.1:8080:8080"
     environment:
       W_A_V: 4.76.0
       WA_PORT: 8080
@@ -84,32 +91,47 @@ services:
       WA_SESSION_ID: ${OPENWA_SESSION_ID:-primary}
       WA_DISABLE_SPINS: "true"
       WA_NO_KILL_ON_LOGOUT: "true"
-    volumes: [openwa_sessions:/sessions]
-    networks: [data, frontend]
+    volumes:
+      - openwa_sessions:/sessions
+    networks:
+      - data
+      - frontend
     shm_size: 1gb
     restart: unless-stopped
+
   migrate:
     build: .
     command: ["node", "src/db/migrate.js"]
     environment: *app-environment
-    depends_on: { postgres: { condition: service_healthy } }
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks: [data]
     restart: "no"
+
   app:
     build: .
     environment: *app-environment
-    ports: ["${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-3131}:3131"]
+    ports:
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-3131}:3131"
     depends_on:
-      migrate: { condition: service_completed_successfully }
-      redis: { condition: service_healthy }
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     networks: [frontend, data]
     init: true
     read_only: true
-    tmpfs: [/tmp:size=64m,noexec,nosuid, /app/runtime:uid=10001,gid=10001,mode=0700,noexec,nosuid]
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid
+      - /app/runtime:uid=10001,gid=10001,mode=0700,noexec,nosuid
     restart: unless-stopped
+
 networks:
   frontend:
-  data: { internal: true }
+  data:
+    internal: true
+
 volumes:
   postgres_data:
   redis_data:

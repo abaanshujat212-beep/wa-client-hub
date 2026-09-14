@@ -20,7 +20,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: node --test --test-force-exit --test-concurrency=1
+      - run: npm test
   postgres:
     name: PostgreSQL integration
     runs-on: ubuntu-latest
