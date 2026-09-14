@@ -60,8 +60,15 @@ if (Ask-YesNo 'Install or refresh the WA Client Hub Windows logon startup task?'
 
 $configPath = Join-Path $env:USERPROFILE '.cloudflared\config.yml'
 if ($cloudflaredAvailable -and (Test-Path $configPath)) {
-  Write-Host "Existing Cloudflare config preserved: $configPath" -ForegroundColor Green
-  if (-not (Get-Service cloudflared -ErrorAction SilentlyContinue)) { Add-Action 'Install the existing named Cloudflare Tunnel as a Windows service from an elevated PowerShell.' }
+  Write-Host "Existing Cloudflare config found: $configPath" -ForegroundColor Green
+  try {
+    $serviceScript = Join-Path $PSScriptRoot 'ensure-cloudflare-service.ps1'
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $serviceScript -ConfigPath $configPath
+    if ($LASTEXITCODE -ne 0) { throw 'The existing Cloudflare service could not be configured.' }
+  } catch {
+    Add-Action "Existing Cloudflare config was found, but automatic service setup failed: $($_.Exception.Message)"
+    Add-Action "Run this from the repository directory if needed: powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\ensure-cloudflare-service.ps1"
+  }
 } elseif ($cloudflaredAvailable -and (Ask-YesNo 'Configure a new named Cloudflare Tunnel now?' $false)) {
   Write-Host 'The next command opens the Cloudflare browser login. Do not continue unless you control the domain.' -ForegroundColor Yellow
   & cloudflared tunnel login
@@ -77,7 +84,6 @@ if ($cloudflaredAvailable -and (Test-Path $configPath)) {
       try {
         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'setup-cloudflare-tunnel.ps1') -TunnelName $tunnelName -TunnelId $match.Value -Hostname $hostname
         if ($LASTEXITCODE -ne 0) { throw 'Named tunnel configuration failed.' }
-        Add-Action 'Open an elevated PowerShell and install/start the Cloudflare service using the commands printed above.'
       } catch { Add-Action $_.Exception.Message }
     }
   }
