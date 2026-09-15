@@ -8,6 +8,7 @@ const { createMetaSignupRuntime } = require('./messaging/metaSignupRuntime');
 const { createMetaCallingRouter, enabled: metaCallingEnabled } = require('./messaging/metaCallingRoutes');
 const { createMetaWebhookRuntime } = require('./messaging/metaWebhookRuntime');
 const { createYCloudWebhookRuntime } = require('./messaging/ycloudWebhookRuntime');
+const { createMetaLifecycleRouter } = require('./messaging/metaLifecycleRoutes');
 const { prependExactRouter } = require('./messaging/prependExactRouter');
 
 const appOrigin = String(process.env.APP_ORIGIN || '').replace(/\/$/, '');
@@ -27,6 +28,8 @@ serverModule.app.use('/api/meta/signup', metaSignup.router);
 serverModule.app.use('/api/meta/connections/:connectionId/templates', metaSignup.templatesRouter);
 serverModule.app.use('/api/meta/connections/:connectionId/media', metaSignup.mediaRouter);
 serverModule.app.use('/api/meta/connections', metaSignup.connectionsRouter);
+const metaLifecycle = createMetaLifecycleRouter({ enabled: serverModule.store.driver === 'postgres', pool: serverModule.store.repository.pool, appSecret: process.env.META_APP_SECRET, publicOrigin: appOrigin || 'https://wa.10xcollab.com' });
+serverModule.app.use('/meta', metaLifecycle);
 const metaCalling = createMetaCallingRouter({ enabled: metaCallingEnabled(process.env), env: process.env, store: serverModule.store, origin: appOrigin });
 serverModule.app.use('/api/meta/connections', metaCalling);
 if (serverModule.store.driver === 'postgres' && ghl.marketplaceInstallRouter) prependExactRouter(serverModule.app, '/webhooks/ghl/install', ghl.marketplaceInstallRouter);
@@ -61,11 +64,7 @@ if (ghl.enabled && ghl.apiRouter && serverModule.store.driver === 'postgres') {
           LEFT JOIN provider_connections p ON p.id = m.provider_connection_id AND p.workspace_id = i.workspace_id
          WHERE i.workspace_id = $1 ORDER BY i.updated_at DESC`, [workspaceId]);
       const requiredScopes = ghl.officialScopes || ['conversations.write'];
-      const installations = result.rows.map(row => {
-        const scopeReady = requiredScopes.every(scope => (row.scopes || []).includes(scope));
-        const mappingReady = Boolean(row.whatsapp_number_id && row.provider_connection_id && row.conversation_provider_id && row.provider_status === 'active');
-        return { installationId: row.installation_id, companyId: row.company_id, locationId: row.location_id, workspaceId: row.workspace_id, status: row.status, scopes: row.scopes || [], accessTokenExpiresAt: row.access_token_expires_at, installingGhlUserId: row.installing_ghl_user_id || null, installingGhlRoleType: row.installing_ghl_role_type || null, mappingReady, whatsappNumberId: row.whatsapp_number_id || null, numberLabel: row.number_label || null, numberPhone: row.number_phone || null, providerConnectionId: row.provider_connection_id || null, provider: row.provider || null, providerStatus: row.provider_status || null, conversationProviderId: row.conversation_provider_id || null, automationEnabled: Boolean(row.automation_enabled), oauthReady: row.status === 'active' && scopeReady, ready: row.status === 'active' && scopeReady && mappingReady };
-      });
+      const installations = result.rows.map(row => { const scopeReady = requiredScopes.every(scope => (row.scopes || []).includes(scope)); const mappingReady = Boolean(row.whatsapp_number_id && row.provider_connection_id && row.conversation_provider_id && row.provider_status === 'active'); return { installationId: row.installation_id, companyId: row.company_id, locationId: row.location_id, workspaceId: row.workspace_id, status: row.status, scopes: row.scopes || [], accessTokenExpiresAt: row.access_token_expires_at, installingGhlUserId: row.installing_ghl_user_id || null, installingGhlRoleType: row.installing_ghl_role_type || null, mappingReady, whatsappNumberId: row.whatsapp_number_id || null, numberLabel: row.number_label || null, numberPhone: row.number_phone || null, providerConnectionId: row.provider_connection_id || null, provider: row.provider || null, providerStatus: row.provider_status || null, conversationProviderId: row.conversation_provider_id || null, automationEnabled: Boolean(row.automation_enabled), oauthReady: row.status === 'active' && scopeReady, ready: row.status === 'active' && scopeReady && mappingReady }; });
       res.json({ configured: Boolean(process.env.GHL_CLIENT_ID && process.env.GHL_CLIENT_SECRET && process.env.GHL_REDIRECT_URI), publicOrigin: appOrigin || null, redirectUri: process.env.GHL_REDIRECT_URI || null, requiredScopes, unsupportedScopes: ['conversations.read', 'contacts.read', 'locations.read'], webhooks: { install: `${appOrigin}/webhooks/ghl/install`, events: `${appOrigin}/webhooks/ghl/events`, messages: `${appOrigin}/webhooks/ghl/messages`, calls: `${appOrigin}/webhooks/ghl/calls` }, installations, mappingCount: installations.filter(item => item.mappingReady).length, ready: Boolean(installations.some(item => item.ready)) });
     } catch { res.status(503).json({ error: 'HighLevel readiness is temporarily unavailable', code: 'GHL_READINESS_UNAVAILABLE' }); }
   });
@@ -74,26 +73,13 @@ if (ghl.enabled && ghl.apiRouter && serverModule.store.driver === 'postgres') {
 serverModule.app.use('/oauth/crm', ghl.oauthRouter);
 serverModule.app.use('/oauth/highlevel', ghl.oauthRouter);
 serverModule.app.use('/api/ghl', ghl.apiRouter);
-serverModule.app.use((error, req, res, next) => {
-  if (!req.path.startsWith('/api/meta/signup/') && !req.path.startsWith('/api/meta/connections/')) return next(error);
-  const large = error?.type === 'entity.too.large';
-  return res.status(large ? 413 : 400).json({ error: large ? 'Meta request is too large' : 'Invalid Meta request' });
-});
+serverModule.app.use((error, req, res, next) => { if (!req.path.startsWith('/api/meta/signup/') && !req.path.startsWith('/api/meta/connections/')) return next(error); const large = error?.type === 'entity.too.large'; return res.status(large ? 413 : 400).json({ error: large ? 'Meta request is too large' : 'Invalid Meta request' }); });
 serverModule.app.use('/api', (_req, res) => res.status(404).json({ error: 'Feature is not enabled' }));
 
 async function runMain() {
-  const server = await serverModule.start();
-  metaSignup.start(); metaWebhook.start(); ycloudWebhook.start();
-  let closing = false;
-  const shutdown = async () => {
-    if (closing) return; closing = true;
-    metaSignup.stop(); metaWebhook.stop(); ycloudWebhook.stop();
-    await new Promise(resolve => server.close(resolve));
-    await serverModule.dependencies.close();
-    if (typeof serverModule.store.close === 'function') await serverModule.store.close();
-    process.exit(0);
-  };
+  const server = await serverModule.start(); metaSignup.start(); metaWebhook.start(); ycloudWebhook.start(); let closing = false;
+  const shutdown = async () => { if (closing) return; closing = true; metaSignup.stop(); metaWebhook.stop(); ycloudWebhook.stop(); await new Promise(resolve => server.close(resolve)); await serverModule.dependencies.close(); if (typeof serverModule.store.close === 'function') await serverModule.store.close(); process.exit(0); };
   process.once('SIGINT', shutdown); process.once('SIGTERM', shutdown); return server;
 }
 if (require.main === module) runMain().catch(error => { console.error(error.message); process.exit(1); });
-module.exports = { ...serverModule, metaSignup, metaWebhook, ycloudWebhook, metaCalling, ghl, ghlInbound, ghlCalls, runMain };
+module.exports = { ...serverModule, metaSignup, metaLifecycle, metaWebhook, ycloudWebhook, metaCalling, ghl, ghlInbound, ghlCalls, runMain };
