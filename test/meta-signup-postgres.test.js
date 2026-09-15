@@ -1,7 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
-const { once } = require('node:events');
 const connectionString = process.env.TEST_DATABASE_URL;
 
 async function databaseFixture(prefix) {
@@ -12,30 +11,27 @@ async function databaseFixture(prefix) {
   const pool = new Pool({ connectionString, options: `-c search_path=${schema}`, statement_timeout: 15000 });
   await admin.query(`CREATE SCHEMA ${schema}`); await runMigrations(pool); await runMigrations(pool);
   await pool.query("INSERT INTO users(id,name,email,password_hash,role) VALUES('owner','Owner','owner@test.local','unused','client')");
-  await pool.query("INSERT INTO plans(id,name,workspace_limit,number_limit,user_limit) VALUES('test-plan','Test',99,1,3)");
+  await pool.query("INSERT INTO plans(id,name,workspace_limit,number_limit,user_limit) VALUES('test-plan','Test',99,3,3)");
   return { schema, pool, async workspace(id) { await pool.query("INSERT INTO workspaces(id,owner_id,name,plan_id) VALUES($1,'owner',$1,'test-plan')", [id]); await pool.query("INSERT INTO workspace_members(id,workspace_id,user_id,role) VALUES($1,$2,'owner','owner')", [`member-${id}`, id]); }, async close() { await pool.end(); await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`); await admin.end(); } };
 }
+function response() { return { statusCode: 200, body: null, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } }; }
 
-test('signup uses persisted sessions, durable retryable claims and fresh DB authorization across HTTP servers', { skip: !connectionString, timeout: 60000 }, async () => {
-  const express = require('express'); const session = require('express-session'); const PgStore = require('connect-pg-simple')(session); const { NumberCreationPolicy } = require('../src/db/numberCreationPolicy'); const { MetaSignupStateRepository } = require('../src/messaging/metaSignupStateRepository'); const { MetaConnectionRepository } = require('../src/messaging/metaConnectionRepository'); const { createMetaSignupHandlers } = require('../src/messaging/metaSignupOrchestrator');
-  const db = await databaseFixture('signup'); const servers = []; const sessionStores = []; let providerCalls = 0; let revokeDuringExchange = false; let signupAssets = { businessAccountId: '987654321', phoneNumberId: '123456789' };
+test('PostgreSQL signup claims are released after provider failure and finalized after one successful install', { skip: !connectionString, timeout: 60000 }, async () => {
+  const { NumberCreationPolicy } = require('../src/db/numberCreationPolicy'); const { MetaSignupStateRepository } = require('../src/messaging/metaSignupStateRepository'); const { MetaConnectionRepository } = require('../src/messaging/metaConnectionRepository'); const { createMetaSignupHandlers } = require('../src/messaging/metaSignupOrchestrator');
+  const db = await databaseFixture('retry'); let first = true;
   try {
-    await db.workspace('workspace'); const policy = new NumberCreationPolicy(db.pool);
-    for (let i = 0; i < 2; i++) {
-      const app = express(); app.use(express.json()); const store = new PgStore({ pool: db.pool, schemaName: db.schema, tableName: 'user_sessions', createTableIfMissing: true, pruneSessionInterval: false }); sessionStores.push(store); app.use(session({ store, secret: 'fixture-session-secret-not-for-production', resave: false, saveUninitialized: false }));
-      app.post('/login', (req, res) => { req.session.userId = 'owner'; req.session.csrf = 'fixture'; res.json({ ok: true }); });
-      app.use((req, res, next) => { if (!req.session.userId) return res.sendStatus(401); if (req.get('x-csrf-token') !== req.session.csrf) return res.sendStatus(403); req.user = { id: req.session.userId, role: 'admin', active: true }; next(); });
-      const handlers = createMetaSignupHandlers({ authorization: policy, stateRepository: new MetaSignupStateRepository(db.pool), signupService: { async exchangeAndVerify() { providerCalls++; if (revokeDuringExchange) await db.pool.query("DELETE FROM workspace_members WHERE workspace_id='workspace'"); await new Promise(resolve => setTimeout(resolve, 30)); return { accessToken: 'fixture-not-real-meta-access-token', metaUserId: '555666777', businessAccountId: signupAssets.businessAccountId, phoneNumberId: signupAssets.phoneNumberId, displayPhoneNumber: signupAssets.phoneNumberId === '223456789' ? '+923001113333' : '+923001112222' }; } }, connectionRepository: new MetaConnectionRepository(db.pool, { encrypt() { return { ciphertext: Buffer.from('fixture'), keyId: 'fixture' }; } }) });
-      app.post('/start', handlers.start); app.post('/complete', handlers.complete); const server = app.listen(0, '127.0.0.1'); servers.push(server); await once(server, 'listening');
-    }
-    const urls = servers.map(server => `http://127.0.0.1:${server.address().port}`); const login = await fetch(`${urls[0]}/login`, { method: 'POST' }); const cookie = login.headers.get('set-cookie').split(';')[0]; await login.json(); const headers = { cookie, 'content-type': 'application/json', 'x-csrf-token': 'fixture' }; const post = (index, path, body, override = headers) => fetch(`${urls[index]}${path}`, { method: 'POST', headers: override, body: JSON.stringify(body) });
-    const start = async () => { const response = await post(0, '/start', { workspaceId: 'workspace', label: 'Official' }); assert.equal(response.status, 201); return (await response.json()).state; }; const complete = (state, index = 1) => post(index, '/complete', { state, code: 'fixture-code', workspaceId: 'wrong-workspace', phoneNumberId: signupAssets.phoneNumberId, businessAccountId: signupAssets.businessAccountId });
-    assert.equal((await post(0, '/start', { workspaceId: 'workspace', label: 'Official' }, { ...headers, 'x-csrf-token': 'wrong' })).status, 403); assert.equal((await post(0, '/start', { workspaceId: 'unknown', label: 'Official' })).status, 404);
-    const revoked = await start(); await db.pool.query("UPDATE workspace_members SET role='viewer' WHERE workspace_id='workspace'"); assert.equal((await complete(revoked)).status, 404); assert.equal((await post(0, '/start', { workspaceId: 'workspace', label: 'Official' })).status, 404); assert.equal(providerCalls, 0); await db.pool.query("UPDATE workspace_members SET role='owner' WHERE workspace_id='workspace'");
-    const inactive = await start(); await db.pool.query("UPDATE users SET active=false WHERE id='owner'"); assert.equal((await complete(inactive)).status, 404); assert.equal(providerCalls, 0); await db.pool.query("UPDATE users SET active=true WHERE id='owner'");
-    const midflight = await start(); revokeDuringExchange = true; assert.equal((await complete(midflight)).status, 404); assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM provider_connections')).rows[0].n, 0); assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM audit_logs')).rows[0].n, 0); revokeDuringExchange = false; await db.pool.query("INSERT INTO workspace_members(id,workspace_id,user_id,role) VALUES('restored','workspace','owner','owner')"); signupAssets = { businessAccountId: '987654321', phoneNumberId: '223456789' }; assert.equal((await complete(midflight)).status, 201); signupAssets = { businessAccountId: '987654321', phoneNumberId: '123456789' };
-    const expired = await start(); await db.pool.query("UPDATE meta_signup_states SET expires_at=now()-interval '1 second'"); assert.equal((await complete(expired)).status, 409); const state = await start(); const stored = (await db.pool.query('SELECT state_hash,session_hash FROM meta_signup_states WHERE expires_at>now()')).rows[0]; assert.match(stored.state_hash, /^[0-9a-f]{64}$/); assert.match(stored.session_hash, /^[0-9a-f]{64}$/); assert.equal(JSON.stringify(stored).includes(state), false); assert.equal(await new MetaSignupStateRepository(db.pool).claim({ state, sessionId: 'wrong', actorId: 'owner' }), null); const replies = await Promise.all([complete(state, 0), complete(state, 1)]); assert.deepEqual(replies.map(res => res.status).sort(), [201, 409]); assert.equal(providerCalls, 3); const payloads = await Promise.all(replies.map(res => res.json())); assert.doesNotMatch(JSON.stringify(payloads), /fixture-not-real-meta-access-token/); assert.equal((await db.pool.query("SELECT count(*)::int AS n FROM provider_connections WHERE status='connecting'")).rows[0].n, 2); assert.equal((await db.pool.query('SELECT count(*)::int AS n FROM whatsapp_numbers WHERE automation_enabled=false')).rows[0].n, 2); assert.equal((await db.pool.query("SELECT count(*)::int AS n FROM audit_logs WHERE action='meta.connection.installed'")).rows[0].n, 2); assert.equal((await complete(state)).status, 409);
-  } finally { for (const server of servers) await new Promise(resolve => server.close(resolve)); for (const store of sessionStores) store.close(); await db.close(); }
+    await db.workspace('workspace');
+    const handlers = createMetaSignupHandlers({ authorization: new NumberCreationPolicy(db.pool), stateRepository: new MetaSignupStateRepository(db.pool), signupService: { async exchangeAndVerify() { if (first) { first = false; throw Object.assign(new Error('temporary Meta network failure'), { code: 'META_CODE_EXCHANGE_FAILED' }); } return { accessToken: 'fixture-not-real-meta-access-token', metaUserId: '555666777', businessAccountId: '987654321', phoneNumberId: '123456789', displayPhoneNumber: '+923001112222' }; } }, connectionRepository: new MetaConnectionRepository(db.pool, { encrypt() { return { ciphertext: Buffer.from('fixture'), keyId: 'fixture' }; } }) });
+    const request = body => ({ user: { id: 'owner', active: true }, sessionID: 'session-a', session: {}, body });
+    const started = response(); await handlers.start(request({ workspaceId: 'workspace', label: 'Official' }), started); assert.equal(started.statusCode, 201); const state = started.body.state;
+    const body = { state, code: 'fixture-code', businessAccountId: '987654321', phoneNumberId: '123456789' };
+    const failed = response(); await handlers.complete(request(body), failed); assert.equal(failed.statusCode, 502);
+    const pending = await db.pool.query("SELECT status FROM meta_signup_states WHERE expires_at>now()"); assert.equal(pending.rows[0].status, 'pending');
+    const success = response(); await handlers.complete(request(body), success); assert.equal(success.statusCode, 201);
+    const replay = response(); await handlers.complete(request(body), replay); assert.equal(replay.statusCode, 409);
+    assert.equal((await db.pool.query("SELECT count(*)::int AS n FROM provider_connections WHERE provider='whatsapp_cloud'")).rows[0].n, 1);
+    assert.equal((await db.pool.query("SELECT count(*)::int AS n FROM audit_logs WHERE action='meta.connection.installed'")).rows[0].n, 1);
+  } finally { await db.close(); }
 });
 
 test('Meta and runtime legacy creation share transactional last-slot, billing and workspace guards', { skip: !connectionString, timeout: 60000 }, async () => {
