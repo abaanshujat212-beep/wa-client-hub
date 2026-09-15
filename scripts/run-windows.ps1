@@ -5,8 +5,11 @@ Set-WaRepositoryRoot
 try {
   $envValues = Assert-WaDockerEnv '.env.docker'
   Wait-WaDocker
-  # Daily launch intentionally does not use --build. Build explicitly when source or image changes.
-  Invoke-WaCompose @('--env-file', '.env.docker', '-f', 'compose.yml', 'up', '-d', '--wait')
+  Invoke-WaCompose @('--env-file', '.env.docker', '-f', 'compose.yml', 'up', '-d', 'postgres', 'redis', '--wait')
+  & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'sync-postgres-role-password.ps1') -EnvFile '.env.docker' -ComposeFile 'compose.yml'
+  if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL password synchronization failed.' }
+  Invoke-WaCompose @('--env-file', '.env.docker', '-f', 'compose.yml', 'up', '-d', 'migrate', '--wait')
+  Invoke-WaCompose @('--env-file', '.env.docker', '-f', 'compose.yml', 'up', '-d', 'app', '--wait')
   $origin = Get-WaAppOrigin $envValues
   $health = Wait-WaHealth 'http://127.0.0.1:3131'
   Write-WaHealthSummary $origin $health
