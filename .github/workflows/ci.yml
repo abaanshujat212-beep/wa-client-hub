@@ -49,18 +49,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Run PostgreSQL integration tests
-        shell: bash
-        run: |
-          set +e
-          output=$(node --test --test-force-exit --test-concurrency=1 test/postgres-integration.test.js test/canonical-send-postgres.test.js test/meta-signup-postgres.test.js test/legacy-delta-postgres.test.js test/meta-signup-routes-postgres.test.js test/meta-signup-runtime-postgres.test.js test/meta-webhook-postgres.test.js test/meta-media-retention-postgres.test.js test/ycloud-webhook-postgres.test.js test/message-policy-postgres.test.js test/ghl-private-pilot-postgres.test.js test/ghl-provisioning-postgres.test.js 2>&1)
-          status=$?
-          printf '%s\n' "$output"
-          if [ "$status" -ne 0 ]; then
-            message=$(printf '%s\n' "$output" | tail -n 80 | sed -e 's/%/%25/g' -e 's/\r/%0D/g' | awk 'BEGIN { ORS="%0A" } { print }')
-            echo "::error title=PostgreSQL integration tests failed::$message"
-            exit "$status"
-          fi
+      - run: node --test --test-force-exit --test-concurrency=1 test/postgres-integration.test.js test/canonical-send-postgres.test.js test/meta-signup-postgres.test.js test/legacy-delta-postgres.test.js test/meta-signup-routes-postgres.test.js test/meta-signup-runtime-postgres.test.js test/meta-webhook-postgres.test.js test/meta-media-retention-postgres.test.js test/ycloud-webhook-postgres.test.js test/message-policy-postgres.test.js test/ghl-private-pilot-postgres.test.js test/ghl-provisioning-postgres.test.js
   postgres-templates:
     name: PostgreSQL official templates
     runs-on: ubuntu-latest
@@ -69,7 +58,6 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          NODE_ENV: test
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: wa_client_hub_test
