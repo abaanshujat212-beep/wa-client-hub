@@ -1,49 +1,27 @@
 (function (root, factory) {
   var api = factory(root);
   if (typeof module === "object" && module.exports) module.exports = api;
-  else {
-    root.WaMetaSignup = api;
-    api.mount();
-  }
+  else { root.WaMetaSignup = api; api.mount(); }
 })(typeof globalThis !== "undefined" ? globalThis : this, function (root) {
   var ORIGINS = ["https://www.facebook.com", "https://web.facebook.com"];
   var SAFE_EVENT_NAMES = ["FINISH", "CANCEL", "ERROR"];
-
-  function safeText(value, limit) {
-    return typeof value === "string" ? value.slice(0, limit || 120) : "";
-  }
-  function validId(value) {
-    return /^\d{1,64}$/.test(String(value || ""));
-  }
-  function diagnostic(name, details) {
-    var entry = Object.assign({ name: name }, details || {});
-    try {
-      if (typeof root.WA_META_SIGNUP_DIAGNOSTIC === "function") root.WA_META_SIGNUP_DIAGNOSTIC(entry);
-      if (root.WA_META_SIGNUP_DEBUG && root.console && typeof root.console.info === "function") root.console.info("[meta-signup]", entry);
-    } catch (_) {}
-  }
-  function errorReason(data) {
-    var code = safeText(data && (data.error_code || data.code), 80);
-    return code || (data && data.error_message ? "META_ERROR_WITH_MESSAGE" : "META_ERROR");
-  }
+  function safeText(value, limit) { return typeof value === "string" ? value.slice(0, limit || 120) : ""; }
+  function validId(value) { return /^\d{1,64}$/.test(String(value || "")); }
+  function diagnostic(name, details) { var entry = Object.assign({ name: name }, details || {}); try { if (typeof root.WA_META_SIGNUP_DIAGNOSTIC === "function") root.WA_META_SIGNUP_DIAGNOSTIC(entry); if (root.WA_META_SIGNUP_DEBUG && root.console && typeof root.console.info === "function") root.console.info("[meta-signup]", entry); } catch (_) {} }
+  function errorReason(data) { var code = safeText(data && (data.error_code || data.code), 80); return code || (data && data.error_message ? "META_ERROR_WITH_MESSAGE" : "META_ERROR"); }
   function parseMessage(origin, value) {
     if (!ORIGINS.includes(origin)) return null;
     try {
       var m = typeof value === "string" ? JSON.parse(value) : value;
       if (!m || m.type !== "WA_EMBEDDED_SIGNUP" || typeof m.event !== "string") return null;
-      var event = m.event.toUpperCase();
-      if (!SAFE_EVENT_NAMES.includes(event)) return null;
+      var event = m.event.toUpperCase(); if (!SAFE_EVENT_NAMES.includes(event)) return null;
       var d = m.data && typeof m.data === "object" ? m.data : {};
       if (event === "CANCEL") return { kind: "cancel", event: event, hasCurrentStep: Boolean(d.current_step), hasError: Boolean(d.error_message || d.error_code) };
       if (event === "ERROR") return { kind: "error", event: event, reason: errorReason(d) };
-      var waba = validId(d.waba_id) ? String(d.waba_id) : null;
-      var phone = validId(d.phone_number_id) ? String(d.phone_number_id) : null;
+      var waba = validId(d.waba_id) ? String(d.waba_id) : null; var phone = validId(d.phone_number_id) ? String(d.phone_number_id) : null;
       return { kind: "finish", event: event, businessAccountId: waba, phoneNumberId: phone, hasAssets: Boolean(waba && phone) };
-    } catch (_) {
-      return null;
-    }
+    } catch (_) { return null; }
   }
-
   function createSignupCoordinator(options) {
     options = options || {};
     var complete = typeof options.complete === "function" ? options.complete : function () { return Promise.resolve(); };
@@ -51,190 +29,45 @@
     var onStatus = typeof options.onStatus === "function" ? options.onStatus : function () {};
     var log = typeof options.diagnostic === "function" ? options.diagnostic : diagnostic;
     var closeGraceMs = Number.isFinite(options.closeGraceMs) ? options.closeGraceMs : 1200;
-    var assetWaitMs = Number.isFinite(options.assetWaitMs) ? options.assetWaitMs : 15000;
+    var reconcileMs = Number.isFinite(options.reconcileMs) ? options.reconcileMs : 15000;
     var attempt = null;
-
     function active() { return Boolean(attempt); }
-    function clearTimers(value) {
-      if (!value) return;
-      if (value.closeTimer) clearTimeout(value.closeTimer);
-      if (value.assetTimer) clearTimeout(value.assetTimer);
-      value.closeTimer = null;
-      value.assetTimer = null;
-    }
-    function emit(kind, message, extra) {
-      onStatus(Object.assign({ kind: kind, message: message, terminal: kind === "success" || kind === "cancelled" || kind === "failed" }, extra || {}));
-    }
-    function terminal(kind, message, extra) {
-      var current = attempt;
-      if (!current) return;
-      clearTimers(current);
-      attempt = null;
-      emit(kind, message, extra);
-    }
-    async function cancelOnce(message, reason) {
-      var current = attempt;
-      if (!current || current.cancelSent) return;
-      current.cancelSent = true;
-      log("signup.cancel", { reason: reason || "unknown", hasState: Boolean(current.state), hasCode: Boolean(current.code), hasAssets: Boolean(current.assets.businessAccountId && current.assets.phoneNumberId) });
-      try { await cancel({ state: current.state }); } catch (_) { log("signup.cancel.failed", { reason: "request_failed" }); }
-      if (attempt === current) terminal("cancelled", message || "Signup cancelled.");
-    }
-    async function fail(message, reason, revokeState) {
-      if (!attempt) return;
-      log("signup.failed", { reason: reason || "unknown", revokeState: Boolean(revokeState), hasState: Boolean(attempt.state), hasCode: Boolean(attempt.code), hasAssets: Boolean(attempt.assets.businessAccountId && attempt.assets.phoneNumberId) });
-      if (revokeState) await cancelOnce("Signup failed. Start a new signup.", reason);
-      else terminal("failed", message || "Signup failed. Start a new signup.", { reason: reason || "unknown" });
-    }
-    async function tryComplete() {
-      var current = attempt;
-      if (!current || current.submitting || !current.code || !current.assets.businessAccountId || !current.assets.phoneNumberId) return;
-      current.submitting = true;
-      clearTimers(current);
-      log("signup.complete.attempt", { hasState: Boolean(current.state), hasCode: true, hasAssets: true });
-      try {
-        await complete({ state: current.state, code: current.code, businessAccountId: current.assets.businessAccountId, phoneNumberId: current.assets.phoneNumberId });
-        if (attempt === current) terminal("success", "Connected successfully.");
-      } catch (_) {
-        if (attempt === current) terminal("failed", "Signup failed. Start a new signup.", { reason: "COMPLETE_REQUEST_FAILED" });
-      }
-    }
-    function start(state) {
-      if (attempt) clearTimers(attempt);
-      attempt = { state: state, code: null, assets: { businessAccountId: null, phoneNumberId: null }, finishReceived: false, cancelReported: false, popupClosed: false, submitting: false, cancelSent: false, closeTimer: null, assetTimer: null };
-      log("signup.started", { hasState: Boolean(state), hasCode: false, hasAssets: false });
-    }
-    function receiveCode(code) {
-      if (!attempt || typeof code !== "string" || !code) return Promise.resolve();
-      attempt.code = code;
-      attempt.popupClosed = true;
-      log("signup.code.received", { hasState: Boolean(attempt.state), hasCode: true, hasAssets: Boolean(attempt.assets.businessAccountId && attempt.assets.phoneNumberId) });
-      return tryComplete();
-    }
-    function receiveFinish(result) {
-      if (!attempt) return Promise.resolve();
-      attempt.finishReceived = true;
-      if (result && result.businessAccountId) attempt.assets.businessAccountId = result.businessAccountId;
-      if (result && result.phoneNumberId) attempt.assets.phoneNumberId = result.phoneNumberId;
-      if (attempt.closeTimer) { clearTimeout(attempt.closeTimer); attempt.closeTimer = null; }
-      log("signup.finish.received", { hasState: Boolean(attempt.state), hasCode: Boolean(attempt.code), hasAssets: Boolean(attempt.assets.businessAccountId && attempt.assets.phoneNumberId), hasBusinessAccountId: Boolean(attempt.assets.businessAccountId), hasPhoneNumberId: Boolean(attempt.assets.phoneNumberId) });
-      if (attempt.assets.businessAccountId && attempt.assets.phoneNumberId) emit("pending", attempt.code ? "Finishing Meta signup." : "Meta connected. Waiting for the authorization result.");
-      else emit("pending", "Meta returned partial signup details. Waiting for the remaining details.");
-      return tryComplete();
-    }
-    function receiveCancel() {
-      if (!attempt) return Promise.resolve();
-      attempt.cancelReported = true;
-      log("signup.cancel.message", { hasState: Boolean(attempt.state), hasCode: Boolean(attempt.code), hasAssets: Boolean(attempt.assets.businessAccountId && attempt.assets.phoneNumberId) });
-      emit("pending", "Meta reported an intermediate cancellation; waiting for the popup result.");
-      return Promise.resolve();
-    }
-    function finalizePopupClose() {
-      if (!attempt) return Promise.resolve();
-      if (attempt.code && attempt.assets.businessAccountId && attempt.assets.phoneNumberId) return tryComplete();
-      if (!attempt.code && !attempt.finishReceived) return cancelOnce("Signup cancelled.", "POPUP_CLOSED_WITHOUT_RESULT");
-      return fail("Signup failed. Start a new signup.", attempt.code ? "META_ASSETS_MISSING" : "META_CODE_MISSING", true);
-    }
-    function popupClosed() {
-      if (!attempt) return;
-      attempt.popupClosed = true;
-      if (attempt.closeTimer) clearTimeout(attempt.closeTimer);
-      if (attempt.code && !attempt.assets.businessAccountId) {
-        attempt.assetTimer = setTimeout(function () { void fail("Signup failed. Start a new signup.", "META_ASSETS_MISSING", true); }, assetWaitMs);
-      } else {
-        attempt.closeTimer = setTimeout(function () { void finalizePopupClose(); }, closeGraceMs);
-      }
-      log("signup.popup.closed", { hasState: Boolean(attempt.state), hasCode: Boolean(attempt.code), hasAssets: Boolean(attempt.assets.businessAccountId && attempt.assets.phoneNumberId) });
-    }
+    function clearTimers(value) { if (!value) return; if (value.closeTimer) clearTimeout(value.closeTimer); if (value.reconcileTimer) clearTimeout(value.reconcileTimer); value.closeTimer = null; value.reconcileTimer = null; }
+    function emit(kind, message, extra) { onStatus(Object.assign({ kind: kind, message: message, terminal: kind === "success" || kind === "cancelled" || kind === "failed" }, extra || {})); }
+    function terminal(kind, message, extra) { var current = attempt; if (!current) return; clearTimers(current); attempt = null; emit(kind, message, extra); }
+    async function cancelOnce(message, reason) { var current = attempt; if (!current || current.cancelSent) return; current.cancelSent = true; log("signup.cancel", { reason: reason || "unknown", hasState: Boolean(current.state), hasCode: Boolean(current.code), hasAssets: Boolean(current.assets.businessAccountId && current.assets.phoneNumberId) }); try { await cancel({ state: current.state }); } catch (_) { log("signup.cancel.failed", { reason: "request_failed" }); } if (attempt === current) terminal("cancelled", message || "Signup cancelled."); }
+    async function fail(message, reason, revokeState) { if (!attempt) return; log("signup.failed", { reason: reason || "unknown", revokeState: Boolean(revokeState), hasState: Boolean(attempt.state), hasCode: Boolean(attempt.code), hasAssets: Boolean(attempt.assets.businessAccountId && attempt.assets.phoneNumberId) }); if (revokeState) await cancelOnce(message || "Signup failed. Start a new signup.", reason); else terminal("failed", message || "Signup failed. Start a new signup.", { reason: reason || "unknown" }); }
+    async function tryComplete() { var current = attempt; if (!current || current.submitting || !current.code || !current.assets.businessAccountId || !current.assets.phoneNumberId) return; current.submitting = true; clearTimers(current); log("signup.complete.attempt", { hasState: Boolean(current.state), hasCode: true, hasAssets: true }); try { await complete({ state: current.state, code: current.code, businessAccountId: current.assets.businessAccountId, phoneNumberId: current.assets.phoneNumberId }); if (attempt === current) terminal("success", "Connected successfully."); } catch (_) { if (attempt === current) terminal("failed", "Signup failed. Start a new signup.", { reason: "COMPLETE_REQUEST_FAILED" }); } }
+    function scheduleReconciliation() { if (!attempt) return; if (attempt.reconcileTimer) clearTimeout(attempt.reconcileTimer); attempt.reconcileTimer = setTimeout(function () { void finalizeReconciliation(); }, reconcileMs); }
+    function start(state) { if (attempt) clearTimers(attempt); attempt = { state: state, code: null, assets: { businessAccountId: null, phoneNumberId: null }, finishReceived: false, cancelReported: false, popupClosed: false, submitting: false, cancelSent: false, closeTimer: null, reconcileTimer: null }; log("signup.started", { hasState: Boolean(state), hasCode: false, hasAssets: false }); }
+    function receiveCode(code) { if (!attempt || typeof code !== "string" || !code) return Promise.resolve(); attempt.code = code; attempt.popupClosed = true; log("signup.code.received", { hasState: Boolean(attempt.state), hasCode: true, hasAssets: Boolean(attempt.assets.businessAccountId && attempt.assets.phoneNumberId) }); scheduleReconciliation(); return tryComplete(); }
+    function receiveFinish(result) { if (!attempt) return Promise.resolve(); attempt.finishReceived = true; if (result && result.businessAccountId) attempt.assets.businessAccountId = result.businessAccountId; if (result && result.phoneNumberId) attempt.assets.phoneNumberId = result.phoneNumberId; if (attempt.closeTimer) { clearTimeout(attempt.closeTimer); attempt.closeTimer = null; } log("signup.finish.received", { hasState: Boolean(attempt.state), hasCode: Boolean(attempt.code), hasAssets: Boolean(attempt.assets.businessAccountId && attempt.assets.phoneNumberId), hasBusinessAccountId: Boolean(attempt.assets.businessAccountId), hasPhoneNumberId: Boolean(attempt.assets.phoneNumberId) }); emit("pending", attempt.assets.businessAccountId && attempt.assets.phoneNumberId ? (attempt.code ? "Finishing Meta signup." : "Meta connected. Waiting for the authorization result.") : "Meta returned partial signup details. Waiting for the remaining details."); scheduleReconciliation(); return tryComplete(); }
+    function receiveCancel() { if (!attempt) return Promise.resolve(); attempt.cancelReported = true; log("signup.cancel.message", { hasState: Boolean(attempt.state), hasCode: Boolean(attempt.code), hasAssets: Boolean(attempt.assets.businessAccountId && attempt.assets.phoneNumberId) }); emit("pending", "Meta reported an intermediate cancellation; waiting for the popup result."); return Promise.resolve(); }
+    function finalizeReconciliation() { if (!attempt) return Promise.resolve(); if (attempt.code && attempt.assets.businessAccountId && attempt.assets.phoneNumberId) return tryComplete(); if (!attempt.code && !attempt.finishReceived && attempt.popupClosed) return cancelOnce("Signup cancelled.", "POPUP_CLOSED_WITHOUT_RESULT"); return fail("Signup failed. Start a new signup.", attempt.code ? "META_ASSETS_MISSING" : attempt.finishReceived ? "META_CODE_MISSING" : "META_NO_RESULT", true); }
+    function finalizePopupClose() { return finalizeReconciliation(); }
+    function popupClosed() { if (!attempt) return; attempt.popupClosed = true; if (attempt.closeTimer) clearTimeout(attempt.closeTimer); attempt.closeTimer = setTimeout(function () { void finalizeReconciliation(); }, closeGraceMs); log("signup.popup.closed", { hasState: Boolean(attempt.state), hasCode: Boolean(attempt.code), hasAssets: Boolean(attempt.assets.businessAccountId && attempt.assets.phoneNumberId) }); scheduleReconciliation(); }
     function explicitCancel() { return cancelOnce("Signup cancelled.", "USER_CANCEL"); }
     function receiveError(reason) { return fail("Signup failed. Start a new signup.", reason || "META_ERROR", true); }
-    return { start: start, active: active, receiveCode: receiveCode, receiveFinish: receiveFinish, receiveCancel: receiveCancel, receiveError: receiveError, popupClosed: popupClosed, finalizePopupClose: finalizePopupClose, explicitCancel: explicitCancel, fail: fail };
+    return { start: start, active: active, receiveCode: receiveCode, receiveFinish: receiveFinish, receiveCancel: receiveCancel, receiveError: receiveError, popupClosed: popupClosed, finalizePopupClose: finalizePopupClose, finalizeReconciliation: finalizeReconciliation, explicitCancel: explicitCancel, fail: fail };
   }
-
   function mount() {
     if (typeof document === "undefined") return;
-    var config = null, csrf = null, coordinator = null, view = document.querySelector("#accountsView");
-    if (!view) return;
-    var panel = document.createElement("section");
-    panel.id = "metaSignupPanel";
-    panel.className = "notice hidden";
-    panel.innerHTML = '<strong>Connect official WhatsApp Cloud API</strong><p id="metaSignupMessage">Choose a workspace and complete Meta Embedded Signup.</p><div class="inline-form"><label>Workspace<select id="metaSignupWorkspace"></select></label><label>Number label<input id="metaSignupLabel" maxlength="200" value="Official WhatsApp"></label><button id="metaSignupButton" class="button primary" type="button">Connect with Meta</button><button id="metaSignupCancel" class="button secondary hidden" type="button">Cancel</button></div><div id="metaSignupStatus" class="table-card"></div>';
+    var config = null, csrf = null, coordinator = null, view = document.querySelector("#accountsView"); if (!view) return;
+    var panel = document.createElement("section"); panel.id = "metaSignupPanel"; panel.className = "notice hidden"; panel.innerHTML = '<strong>Connect official WhatsApp Cloud API</strong><p id="metaSignupMessage">Choose a workspace and complete Meta Embedded Signup.</p><div class="inline-form"><label>Workspace<select id="metaSignupWorkspace"></select></label><label>Number label<input id="metaSignupLabel" maxlength="200" value="Official WhatsApp"></label><button id="metaSignupButton" class="button primary" type="button">Connect with Meta</button><button id="metaSignupCancel" class="button secondary hidden" type="button">Cancel</button></div><div id="metaSignupStatus" class="table-card"></div>';
     view.insertBefore(panel, view.firstChild);
     var select = panel.querySelector("#metaSignupWorkspace"), msg = panel.querySelector("#metaSignupMessage"), button = panel.querySelector("#metaSignupButton"), cancelButton = panel.querySelector("#metaSignupCancel"), status = panel.querySelector("#metaSignupStatus");
-    function say(text) { msg.textContent = text; }
-    function resetControls() { button.disabled = false; cancelButton.classList.add("hidden"); }
-    async function json(url, options) {
-      var response = await fetch(url, Object.assign({ credentials: "same-origin" }, options || {}));
-      var body = response.status === 204 ? null : await response.json().catch(function () { return {}; });
-      if (!response.ok) throw new Error((body && body.error) || "Request failed");
-      return body;
-    }
+    function say(text) { msg.textContent = text; } function resetControls() { button.disabled = false; cancelButton.classList.add("hidden"); }
+    async function json(url, options) { var response = await fetch(url, Object.assign({ credentials: "same-origin" }, options || {})); var body = response.status === 204 ? null : await response.json().catch(function () { return {}; }); if (!response.ok) throw new Error((body && body.error) || "Request failed"); return body; }
     function post(path, body) { return json("/api/meta/signup/" + path, { method: "POST", headers: { "content-type": "application/json", "x-csrf-token": csrf }, body: JSON.stringify(body) }); }
-    async function refresh() {
-      if (!select.value) return;
-      try {
-        var result = await json("/api/meta/signup/status?workspaceId=" + encodeURIComponent(select.value));
-        status.textContent = result.pending ? "Signup awaiting completion." : result.connections.length ? result.connections.map(function (c) { return c.label + " — " + c.status + (c.number ? " — " + c.number.phone : ""); }).join("\n") : "No official Meta connection yet.";
-      } catch (_) { status.textContent = "Status unavailable."; }
-    }
-    function onCoordinatorStatus(update) {
-      say(update.message);
-      if (update.terminal) { resetControls(); void refresh(); }
-    }
+    async function refresh() { if (!select.value) return; try { var result = await json("/api/meta/signup/status?workspaceId=" + encodeURIComponent(select.value)); status.textContent = result.pending ? "Signup awaiting completion." : result.connections.length ? result.connections.map(function (c) { return c.label + " — " + c.status + (c.number ? " — " + c.number.phone : ""); }).join("\n") : "No official Meta connection yet."; } catch (_) { status.textContent = "Status unavailable."; } }
+    function onCoordinatorStatus(update) { say(update.message); if (update.terminal) { resetControls(); void refresh(); } }
     coordinator = createSignupCoordinator({ complete: function (body) { return post("complete", body); }, cancel: function (body) { return post("cancel", body); }, onStatus: onCoordinatorStatus, diagnostic: diagnostic });
-    addEventListener("message", function (event) {
-      var parsed = parseMessage(event.origin, event.data);
-      if (!parsed) {
-        diagnostic("message.rejected", { origin: safeText(event.origin, 120), hasStringData: typeof event.data === "string" });
-        return;
-      }
-      diagnostic("message.accepted", { origin: safeText(event.origin, 120), type: "WA_EMBEDDED_SIGNUP", event: parsed.event, hasState: coordinator.active(), hasCode: false, hasAssets: Boolean(parsed.businessAccountId && parsed.phoneNumberId) });
-      if (!coordinator.active()) return;
-      if (parsed.kind === "finish") void coordinator.receiveFinish(parsed);
-      else if (parsed.kind === "cancel") void coordinator.receiveCancel();
-      else if (parsed.kind === "error") void coordinator.receiveError(parsed.reason);
-    });
-    function loadSdk() {
-      return new Promise(function (resolve, reject) {
-        if (root.FB) return resolve();
-        root.fbAsyncInit = function () { root.FB.init({ appId: config.appId, autoLogAppEvents: true, xfbml: false, version: config.graphVersion }); resolve(); };
-        if (document.getElementById("facebook-jssdk")) return;
-        var script = document.createElement("script"); script.id = "facebook-jssdk"; script.async = true; script.defer = true; script.crossOrigin = "anonymous"; script.src = "https://connect.facebook.net/en_US/sdk.js"; script.onerror = function () { reject(new Error("Could not load Meta signup.")); }; document.head.appendChild(script);
-      });
-    }
-    button.addEventListener("click", async function () {
-      if (coordinator.active()) return;
-      try {
-        button.disabled = true;
-        var started = await post("start", { workspaceId: select.value, label: panel.querySelector("#metaSignupLabel").value.trim() });
-        coordinator.start(started.state);
-        cancelButton.classList.remove("hidden"); say("Complete the Meta popup.");
-        await loadSdk();
-        root.FB.login(function (result) {
-          diagnostic("fb.login.callback", { hasState: coordinator.active(), hasAuthResponse: Boolean(result && result.authResponse), hasCode: Boolean(result && result.authResponse && result.authResponse.code), status: safeText(result && result.status, 80), authStatus: safeText(result && result.authResponse && result.authResponse.status, 80) });
-          if (!coordinator.active()) return;
-          if (result && result.authResponse && result.authResponse.code) void coordinator.receiveCode(result.authResponse.code);
-          else coordinator.popupClosed();
-        }, { config_id: config.configId, auth_type: "rerequest", response_type: "code", override_default_response_type: true, extras: { setup: {} } });
-      } catch (error) {
-        if (coordinator.active()) void coordinator.fail("Signup failed. Start a new signup.", "SDK_START_FAILED", true);
-        else { resetControls(); say("Signup failed. Start a new signup."); }
-      }
-    });
-    cancelButton.addEventListener("click", function () { void coordinator.explicitCancel(); });
-    select.addEventListener("change", function () { void refresh(); });
-    async function discover() {
-      try {
-        var session = await json("/api/session"); if (!session.authenticated) return;
-        csrf = session.csrfToken; config = await json("/api/meta/signup/config");
-        var workspaces = (await json("/api/workspaces")).workspaces || [];
-        select.replaceChildren(); workspaces.forEach(function (workspace) { var option = document.createElement("option"); option.value = workspace.id; option.textContent = workspace.name; select.appendChild(option); });
-        if (!workspaces.length) return; panel.classList.remove("hidden"); await refresh();
-      } catch (_) { panel.classList.add("hidden"); }
-    }
-    var app = document.querySelector("#appView");
-    if (app) new MutationObserver(function () { if (!app.classList.contains("hidden")) void discover(); }).observe(app, { attributes: true, attributeFilter: ["class"] });
-    void discover();
+    addEventListener("message", function (event) { var parsed = parseMessage(event.origin, event.data); if (!parsed) { diagnostic("message.rejected", { origin: safeText(event.origin, 120), hasStringData: typeof event.data === "string" }); return; } diagnostic("message.accepted", { origin: safeText(event.origin, 120), type: "WA_EMBEDDED_SIGNUP", event: parsed.event, hasState: coordinator.active(), hasCode: false, hasAssets: Boolean(parsed.businessAccountId && parsed.phoneNumberId) }); if (!coordinator.active()) return; if (parsed.kind === "finish") void coordinator.receiveFinish(parsed); else if (parsed.kind === "cancel") void coordinator.receiveCancel(); else if (parsed.kind === "error") void coordinator.receiveError(parsed.reason); });
+    function loadSdk() { return new Promise(function (resolve, reject) { if (root.FB) return resolve(); root.fbAsyncInit = function () { root.FB.init({ appId: config.appId, autoLogAppEvents: true, xfbml: false, version: config.graphVersion }); resolve(); }; if (document.getElementById("facebook-jssdk")) return; var script = document.createElement("script"); script.id = "facebook-jssdk"; script.async = true; script.defer = true; script.crossOrigin = "anonymous"; script.src = "https://connect.facebook.net/en_US/sdk.js"; script.onerror = function () { reject(new Error("Could not load Meta signup.")); }; document.head.appendChild(script); }); }
+    button.addEventListener("click", async function () { if (coordinator.active()) return; try { button.disabled = true; var started = await post("start", { workspaceId: select.value, label: panel.querySelector("#metaSignupLabel").value.trim() }); coordinator.start(started.state); cancelButton.classList.remove("hidden"); say("Complete the Meta popup."); await loadSdk(); root.FB.login(function (result) { diagnostic("fb.login.callback", { hasState: coordinator.active(), hasAuthResponse: Boolean(result && result.authResponse), hasCode: Boolean(result && result.authResponse && result.authResponse.code), status: safeText(result && result.status, 80), authStatus: safeText(result && result.authResponse && result.authResponse.status, 80) }); if (!coordinator.active()) return; if (result && result.authResponse && result.authResponse.code) void coordinator.receiveCode(result.authResponse.code); else coordinator.popupClosed(); }, { config_id: config.configId, auth_type: "rerequest", response_type: "code", override_default_response_type: true, extras: { setup: {} } }); } catch (_) { if (coordinator.active()) void coordinator.fail("Signup failed. Start a new signup.", "SDK_START_FAILED", true); else { resetControls(); say("Signup failed. Start a new signup."); } } });
+    cancelButton.addEventListener("click", function () { void coordinator.explicitCancel(); }); select.addEventListener("change", function () { void refresh(); });
+    async function discover() { try { var session = await json("/api/session"); if (!session.authenticated) return; csrf = session.csrfToken; config = await json("/api/meta/signup/config"); var workspaces = (await json("/api/workspaces")).workspaces || []; select.replaceChildren(); workspaces.forEach(function (workspace) { var option = document.createElement("option"); option.value = workspace.id; option.textContent = workspace.name; select.appendChild(option); }); if (!workspaces.length) return; panel.classList.remove("hidden"); await refresh(); } catch (_) { panel.classList.add("hidden"); } }
+    var app = document.querySelector("#appView"); if (app) new MutationObserver(function () { if (!app.classList.contains("hidden")) void discover(); }).observe(app, { attributes: true, attributeFilter: ["class"] }); void discover();
   }
   return { parseMessage: parseMessage, createSignupCoordinator: createSignupCoordinator, mount: mount, FACEBOOK_ORIGINS: ORIGINS };
 });
