@@ -6,6 +6,7 @@ This project is not affiliated with WhatsApp or Meta.
 
 - `/terms.html`
 - `/privacy.html`
+- `/data-deletion.html`
 - `/compliance.html`
 
 ## Key policies
@@ -15,6 +16,7 @@ This project is not affiliated with WhatsApp or Meta.
 - No storage of payment card data in WA Client Hub.
 - Browser profiles are sensitive because they may contain WhatsApp sessions.
 - Remote desktop must be secured; raw RDP must not be public.
+- Verified data deletion requests are handled through `support@10xdigitalventures.com`.
 
 ## Production note
 
