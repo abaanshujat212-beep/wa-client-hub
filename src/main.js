@@ -13,6 +13,10 @@ const { prependExactRouter } = require('./messaging/prependExactRouter');
 
 const appOrigin = String(process.env.APP_ORIGIN || '').replace(/\/$/, '');
 if (!process.env.GHL_REDIRECT_URI && appOrigin) process.env.GHL_REDIRECT_URI = `${appOrigin}/oauth/crm/callback`;
+const openWaEnabled = String(process.env.OPENWA_ENABLED || 'false').toLowerCase() === 'true';
+const metaSignupEnabled = String(process.env.META_SIGNUP_ENABLED || 'false').toLowerCase() === 'true';
+const ycloudEnabled = String(process.env.YCLOUD_ENABLED || 'false').toLowerCase() === 'true';
+serverModule.app.get('/api/features', (req, res) => { const user = req.session?.userId && serverModule.store.findUser(req.session.userId); if (!user || !user.active) return res.status(401).json({ error: 'Please sign in' }); res.json({ openwaEnabled: openWaEnabled, metaSignupEnabled: metaSignupEnabled, ycloudEnabled: ycloudEnabled }); });
 
 const ghl = createGhlAutoProvisioningRuntime({ env: process.env, store: serverModule.store });
 const ghlInbound = ghl.enabled ? createGhlInboundBridge({ pool: serverModule.store.repository.pool, deliverInboundWhatsApp: ghl.deliverInboundWhatsApp }) : null;

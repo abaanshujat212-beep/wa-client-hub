@@ -8,8 +8,11 @@ const { createLegacyOpenWaTextHandler } = require("../messaging/legacyOpenWaText
 function safeSecretEqual(actual, expected) { const a = Buffer.from(String(actual || "")); const b = Buffer.from(String(expected || "")); return a.length === b.length && a.length > 0 && crypto.timingSafeEqual(a, b); }
 function normalizeEnvelope(body = {}) { if (body.payload) return body; const aliases = { onMessage: "message.any", onAnyMessage: "message.any", onAck: "ack.changed", onStateChanged: "session.state.changed" }; const event = aliases[body.event] || body.event; let payload = body.data; if (["message.received", "message.any"].includes(event)) payload = { message: body.data }; if (event === "ack.changed") payload = { ack: body.data }; if (event === "session.state.changed") payload = { details: { next: body.data } }; return { webhookId: body.webhookId, sessionId: body.sessionId, event, payload, timestamp: body.timestamp || body.ts }; }
 
-function createOpenWaRouter({ store, repository, client, events, onInbound, onCanonicalEvent, webhookSecret = process.env.OPENWA_WEBHOOK_SECRET || "", requireAuth, requireManage, canonicalSendService = null }) {
-  const router = express.Router(); let legacyTextHandler = null;
+function createOpenWaRouter({ store, repository, client, events, onInbound, onCanonicalEvent, webhookSecret = process.env.OPENWA_WEBHOOK_SECRET || "", requireAuth, requireManage, canonicalSendService = null, enabled } = {}) {
+  const router = express.Router();
+  const openWaEnabled = enabled === undefined ? String(process.env.OPENWA_ENABLED || "false").toLowerCase() === "true" : enabled === true;
+  if (!openWaEnabled) { router.use((_req, res) => res.status(404).json({ error: "OpenWA is disabled" })); return router; }
+  let legacyTextHandler = null;
   function textHandler() {
     if (legacyTextHandler) return legacyTextHandler;
     const messagingRepository = new MessagingRepository(repository.pool);
