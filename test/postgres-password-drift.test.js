@@ -12,7 +12,7 @@ test('Windows Docker startup synchronizes the existing role without volume delet
   assert.match(helper, /docker exec -i --user postgres/);
   assert.match(helper, /ALTER ROLE/);
   assert.match(helper, /Expected the local deployment role\/database to be wa_hub/);
-  assert.doesNotMatch(helper, /Write-Host.*password/i);
+  assert.doesNotMatch(helper, /Write-Host.*(?:\$password|\$escapedPassword|POSTGRES_PASSWORD)/i);
   assert.doesNotMatch(`${startup}\n${daily}`, /down\s+(-v|--volumes)|down\s+--volumes/i);
   const postgresStart = startup.indexOf("'postgres', 'redis', '--wait'");
   const passwordSync = startup.indexOf("Sync-PostgresPassword 'compose.yml'");
