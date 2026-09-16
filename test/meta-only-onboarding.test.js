@@ -21,6 +21,7 @@ test('Meta signup waits for the authenticated app view before requesting a sessi
   assert.match(signup, /if \(!app\.classList\.contains\("hidden"\)\) void discover\(\)/);
   assert.doesNotMatch(signup, /\}\); void discover\(\);/);
   assert.match(server, /app\.get\("\/api\/session".*Cache-Control", "no-store"/);
+  assert.match(server, /if \(!req\.path\.startsWith\("\/api\/"\)\) return next\(\)/);
 });
 
 test('OpenWA stays an explicit Compose profile and is disabled by default', () => {
