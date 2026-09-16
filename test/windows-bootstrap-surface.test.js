@@ -24,3 +24,11 @@ test('Windows autostart uses the PowerShell-compatible interactive logon type', 
   assert.ok(script.includes('-LogonType Interactive'));
   assert.ok(!script.includes('-LogonType InteractiveToken'));
 });
+
+test('Windows launchers recover a stale Docker Desktop process with a stopped engine', () => {
+  for (const file of ['scripts/start-stack-windows.ps1', 'scripts/windows-common.ps1']) {
+    const script = read(file);
+    assert.match(script, /Start-Process \$desktop -WindowStyle Hidden/);
+    assert.doesNotMatch(script, /if \(-not \(Get-Process -Name 'Docker Desktop'/);
+  }
+});

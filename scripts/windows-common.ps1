@@ -20,7 +20,9 @@ function Wait-WaDocker {
     (Join-Path (Split-Path -Parent $dockerRoot) 'frontend\Docker Desktop.exe')
   ) | Where-Object { Test-Path $_ } | Select-Object -First 1
   if (-not $desktop) { throw 'Docker Desktop was not found. Install it and enable Start Docker Desktop when you sign in.' }
-  if (-not (Get-Process -Name 'Docker Desktop' -ErrorAction SilentlyContinue)) { Start-Process $desktop -WindowStyle Hidden }
+  # A visible process is not proof that the Linux engine is alive. Re-launching
+  # Desktop is safe and recovers stale processes after sleep, crash, or update.
+  Start-Process $desktop -WindowStyle Hidden
   for ($i = 0; $i -lt 60; $i++) {
     docker info *> $null
     if ($LASTEXITCODE -eq 0) { return }

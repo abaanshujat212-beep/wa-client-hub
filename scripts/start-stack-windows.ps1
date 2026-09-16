@@ -17,7 +17,9 @@ function Wait-ForDocker {
   $dockerRoot = Split-Path -Parent (Split-Path -Parent (Get-Command docker).Source)
   $desktop = @("$env:ProgramFiles\Docker\Docker\Docker Desktop.exe", "$env:LOCALAPPDATA\Docker\Docker Desktop.exe", (Join-Path (Split-Path -Parent $dockerRoot) 'frontend\Docker Desktop.exe')) | Where-Object { Test-Path $_ } | Select-Object -First 1
   if (-not $desktop) { throw 'Docker Desktop was not found. Install it and enable Start Docker Desktop when you sign in.' }
-  if (-not (Get-Process -Name 'Docker Desktop' -ErrorAction SilentlyContinue)) { Start-Process $desktop -WindowStyle Hidden }
+  # A stale Desktop process may survive while its Linux engine pipe is gone.
+  # Re-invoking the launcher is idempotent and asks Desktop to restore the backend.
+  Start-Process $desktop -WindowStyle Hidden
   for ($i = 0; $i -lt 60; $i++) { docker info *> $null; if ($LASTEXITCODE -eq 0) { return }; Start-Sleep -Seconds 2 }
   throw 'Docker Desktop did not become ready within 120 seconds.'
 }
@@ -29,7 +31,8 @@ if ($Mode -eq 'docker') {
   if (-not (Test-Path '.env.docker')) { throw '.env.docker is missing. Copy .env.docker.example to .env.docker and replace every change-me value.' }
   Run-Compose @('--env-file', '.env.docker', '-f', 'compose.yml', 'up', '-d', 'postgres', 'redis', '--wait')
   Sync-PostgresPassword 'compose.yml'
-  Run-Compose @('--env-file', '.env.docker', '-f', 'compose.yml', 'up', '-d', 'migrate', '--wait')
+  Run-Compose @('--env-file', '.env.docker', '-f', 'compose.yml', 'up', '-d', 'migrate')
+  Run-Compose @('--env-file', '.env.docker', '-f', 'compose.yml', 'wait', 'migrate')
   Run-Compose @('--env-file', '.env.docker', '-f', 'compose.yml', 'up', '-d', 'app', '--wait')
   Write-Host 'Docker app, migration, PostgreSQL, and Redis are running.' -ForegroundColor Green
   Write-Host 'Dashboard: http://127.0.0.1:3131' -ForegroundColor Green
