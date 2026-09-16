@@ -15,6 +15,14 @@ test('authenticated dashboard loads one Meta signup implementation and the featu
   assert.doesNotMatch(ui, /FB\.login|WA_EMBEDDED_SIGNUP/);
 });
 
+test('Meta signup waits for the authenticated app view before requesting a session', () => {
+  const signup = read('public/meta-signup.js');
+  const server = read('src/server.js');
+  assert.match(signup, /if \(!app\.classList\.contains\("hidden"\)\) void discover\(\)/);
+  assert.doesNotMatch(signup, /\}\); void discover\(\);/);
+  assert.match(server, /app\.get\("\/api\/session".*Cache-Control", "no-store"/);
+});
+
 test('OpenWA stays an explicit Compose profile and is disabled by default', () => {
   const env = read('.env.docker.example');
   const compose = read('compose.yml');
