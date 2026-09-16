@@ -36,6 +36,7 @@ const { accountSessionStatus, statusLabel } = require("./sessionStatus");
 const { createSwichRouter } = require("./billing/swichRoutes");
 const { createWhopRouter } = require("./billing/whopRoutes");
 const { createStripeRouter } = require("./billing/stripeRoutes");
+const { createServerTiming } = require("./serverTiming");
 
 const rootDir = path.resolve(__dirname, "..");
 const app = express();
@@ -60,6 +61,7 @@ const sessionStore = store.driver === "postgres"
 
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
+app.use(createServerTiming());
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json({ limit: "2mb", verify: (req, _res, buffer) => { if (req.originalUrl === "/api/billing/stripe/webhook" || /^\/api\/(connectors|providers)\/[^/]+\/(webhook|shopify|woocommerce|ghl)$/.test(req.originalUrl)) req.rawBody = Buffer.from(buffer); } }));
 app.use(session({ store: sessionStore, name: "wa_hub_session", secret: process.env.SESSION_SECRET || "development-only-secret-change-this-now", resave: false, saveUninitialized: false, cookie: { httpOnly: true, secure: process.env.COOKIE_SECURE === "true" ? true : "auto", sameSite: "lax", maxAge: 1000 * 60 * 60 * 12 } }));
