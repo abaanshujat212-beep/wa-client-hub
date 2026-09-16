@@ -13,6 +13,11 @@ class PostgresRepository {
     const config = assertDatabaseConfig({ ...databaseConfig(), driver: 'postgres', ...options });
     this.pool = options.pool || new Pool(config);
     this.ownsPool = !options.pool;
+    this.pool.on('error', (error) => {
+      // pg emits idle-client failures on the pool. Without a listener Node treats
+      // them as fatal, so a routine PostgreSQL restart takes the whole app down.
+      console.error('PostgreSQL pool connection lost', { code: error?.code || 'PG_POOL_ERROR' });
+    });
   }
 
   async init() { await runMigrations(this.pool); }

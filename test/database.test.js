@@ -1,9 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
+const { EventEmitter } = require('node:events');
 const { databaseConfig, assertDatabaseConfig } = require('../src/db/config');
 const { checksum } = require('../src/db/migrate');
 const { createStore } = require('../src/storeFactory');
+const PostgresRepository = require('../src/db/postgresRepository');
 
 test('databaseConfig defaults to JSON storage', () => {
   const config = databaseConfig({});
@@ -26,4 +28,10 @@ test('store factory selects JSON by default and validates PostgreSQL configurati
   const jsonStore = createStore(process.cwd(), {});
   assert.equal(jsonStore.driver, 'json');
   assert.throws(() => createStore(process.cwd(), { STORE_DRIVER: 'postgres' }), /DATABASE_URL/);
+});
+
+test('PostgreSQL repository handles idle pool errors instead of crashing the process', () => {
+  const pool = new EventEmitter();
+  new PostgresRepository({ pool, connectionString: 'postgresql://localhost/test' });
+  assert.equal(pool.listenerCount('error'), 1);
 });
