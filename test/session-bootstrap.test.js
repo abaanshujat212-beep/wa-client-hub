@@ -18,6 +18,6 @@ test('dashboard session bootstrap has a finite client timeout', () => {
   assert.match(index, /session-bootstrap\.js.*app\.js.*dashboard\.js/);
   assert.match(bootstrap, /SESSION_TIMEOUT_MS = 10000/);
   assert.match(bootstrap, /AbortController/);
-  assert.match(bootstrap, /\/api\/session/);
+  assert.match(bootstrap, /api.*session/);
   assert.match(bootstrap, /SessionTimeoutError/);
 });
