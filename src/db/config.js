@@ -2,6 +2,11 @@ function firstNonEmpty(...values) {
   return values.find((value) => value !== undefined && value !== null && String(value) !== '') ?? '';
 }
 
+function boundedMillis(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 30000) : fallback;
+}
+
 function databaseConfig(env = process.env) {
   const host = firstNonEmpty(env.DATABASE_HOST, env.DB_HOST, env.PGHOST);
   const port = Number(firstNonEmpty(env.DATABASE_PORT, env.DB_PORT, env.PGPORT, 5432));
@@ -19,7 +24,10 @@ function databaseConfig(env = process.env) {
     user: user || undefined,
     password: password || undefined,
     ssl: env.DATABASE_SSL === "true" ? { rejectUnauthorized: env.DATABASE_SSL_REJECT_UNAUTHORIZED !== "false" } : undefined,
-    max: Math.max(1, Number(env.DATABASE_POOL_MAX || 10))
+    max: Math.max(1, Number(env.DATABASE_POOL_MAX || 10)),
+    // Prevent the session store from leaving the dashboard's initial request pending forever.
+    connectionTimeoutMillis: boundedMillis(env.DATABASE_CONNECTION_TIMEOUT_MS, 5000),
+    query_timeout: boundedMillis(env.DATABASE_QUERY_TIMEOUT_MS, 10000)
   };
 }
 
