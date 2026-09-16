@@ -125,6 +125,7 @@ app.get("/api/ready", async (_req, res) => {
   const readiness = await dependencies.readiness(store);
   res.status(readiness.ok ? 200 : 503).json({ ...readiness, time: new Date().toISOString() });
 });
+app.use((req, res, next) => { if (req.method === "GET" && (req.path === "/" || req.path.endsWith(".html"))) { res.set("Cache-Control", "no-store"); res.set("Cloudflare-CDN-Cache-Control", "no-store"); } next(); });
 app.use(express.static(path.join(rootDir, "public"), { extensions: ["html"] }));
 app.get("/{*path}", (req, res, next) => /^\/(api|oauth|webhooks)(\/|$)/.test(req.path) ? next() : res.sendFile(path.join(rootDir, "public", "index.html")));
 async function start() { const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com"; const adminPassword = process.env.ADMIN_PASSWORD || "ChangeMeNow123!"; assertSecurityConfig(process.env); await store.init({ adminEmail, adminPassword }); await dependencies.connect(); campaignWorker?.start(); connectorWorker?.start(); return app.listen(port, "0.0.0.0", () => console.log(`WA Client Hub running at http://localhost:${port} using ${store.driver} storage`)); }
