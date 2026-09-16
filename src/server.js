@@ -1,6 +1,7 @@
 require("dotenv").config();
 
 const path = require("node:path");
+const fs = require("node:fs");
 const crypto = require("node:crypto");
 const express = require("express");
 const session = require("express-session");
@@ -39,6 +40,7 @@ const { createStripeRouter } = require("./billing/stripeRoutes");
 const { createServerTiming } = require("./serverTiming");
 
 const rootDir = path.resolve(__dirname, "..");
+const dashboardBundle = ["meta-signup.js", "meta-only-ui.js", "remote-desktop.js", "monitoring.js", "admin-summary.js", "client-self-service.js", "session-status.js", "billing-admin.js", "swich-admin.js", "whop-admin.js", "integrations.js", "crm-readiness.js", "setup-docs.js", "ghl-assignments.js"].map((file) => fs.readFileSync(path.join(rootDir, "public", file), "utf8")).join(";\n");
 const app = express();
 const store = createStore(rootDir);
 const launcher = new BrowserLauncher(rootDir);
@@ -125,6 +127,7 @@ app.get("/api/ready", async (_req, res) => {
   const readiness = await dependencies.readiness(store);
   res.status(readiness.ok ? 200 : 503).json({ ...readiness, time: new Date().toISOString() });
 });
+app.get("/dashboard.js", (_req, res) => { res.type("text/javascript").set("Cache-Control", "public, max-age=31536000, immutable").send(dashboardBundle); });
 app.use((req, res, next) => { if (req.method === "GET" && (req.path === "/" || req.path.endsWith(".html"))) { res.set("Cache-Control", "no-store"); res.set("Cloudflare-CDN-Cache-Control", "no-store"); } next(); });
 app.use(express.static(path.join(rootDir, "public"), { extensions: ["html"] }));
 app.get("/{*path}", (req, res, next) => /^\/(api|oauth|webhooks)(\/|$)/.test(req.path) ? next() : res.sendFile(path.join(rootDir, "public", "index.html")));
