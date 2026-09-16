@@ -6,12 +6,14 @@ WA Client Hub now repairs this safely during the normal Windows Docker startup p
 
 1. Start only PostgreSQL and Redis and wait for their health checks.
 2. Resolve the running PostgreSQL container locally with Docker Compose.
-3. Execute `psql` inside that container as the local `postgres` OS user over the Unix socket.
-4. Verify that the target role and database are the expected local `wa_hub` values.
-5. Run `ALTER ROLE "wa_hub" PASSWORD ...` with the configured password supplied through stdin; the password is not printed or logged.
-6. Run migrations, then start the app.
+3. If Compose briefly returns no container ID, retry discovery for up to 15 seconds and fall back to the `com.docker.compose.project=wa-client-hub` and `com.docker.compose.service=postgres` labels.
+4. Require exactly one matching container and verify that it is running and healthy before invoking `psql`.
+5. Execute `psql` inside that container as the local `postgres` OS user over the Unix socket.
+6. Verify that the target role and database are the expected local `wa_hub` values.
+7. Run `ALTER ROLE "wa_hub" PASSWORD ...` with the configured password supplied through stdin; the password is not printed or logged.
+8. Run migrations, then start the app.
 
-The helper is `scripts/sync-postgres-role-password.ps1`. It refuses placeholders, unexpected role/database identifiers, missing containers, and unexpected PostgreSQL targets. It never runs `docker compose down -v`, removes a volume, truncates data, or recreates the cluster.
+The helper is `scripts/sync-postgres-role-password.ps1`. It distinguishes a container that was not discovered after the retry timeout from a container that was discovered but failed the running/healthy PostgreSQL check. It refuses placeholders, unexpected role/database identifiers, missing containers, multiple matching containers, and unexpected PostgreSQL targets. It never runs `docker compose down -v`, removes a volume, truncates data, or recreates the cluster.
 
 The Compose app now receives PostgreSQL as discrete host/port/database/user/password fields instead of interpolating the password into `DATABASE_URL`. This avoids failures when a password contains `@`, `#`, `?`, `/`, or other URI-reserved characters. `DATABASE_URL` remains supported for external deployments when discrete fields are not supplied.
 
