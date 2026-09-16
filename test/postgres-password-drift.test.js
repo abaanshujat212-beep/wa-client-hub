@@ -16,8 +16,9 @@ test('Windows Docker startup synchronizes the existing role without volume delet
   assert.doesNotMatch(`${startup}\n${daily}`, /down\s+(-v|--volumes)|down\s+--volumes/i);
   const postgresStart = startup.indexOf("'postgres', 'redis', '--wait'");
   const passwordSync = startup.indexOf("Sync-PostgresPassword 'compose.yml'");
-  const migration = startup.indexOf("'migrate', '--wait'");
-  assert.ok(postgresStart >= 0 && passwordSync > postgresStart && migration > passwordSync);
+  const migrationStart = startup.indexOf("'up', '-d', 'migrate'");
+  const migrationWait = startup.indexOf("'wait', 'migrate'");
+  assert.ok(postgresStart >= 0 && passwordSync > postgresStart && migrationStart > passwordSync && migrationWait > migrationStart);
 });
 
 test('container discovery retries an initially empty Compose lookup', () => {
