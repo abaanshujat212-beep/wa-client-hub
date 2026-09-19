@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const bcrypt = require('bcryptjs');
 const express = require('express');
+const { decryptUserContext } = require('./ghlUserContext');
 
 function base64url(value) { return Buffer.from(value).toString('base64url'); }
 function verifyAssertion(token, secret, now = Date.now()) {
@@ -21,9 +22,10 @@ function createGhlEmbeddedRouter({ pool, store, env = process.env } = {}) {
   if (typeof pool?.connect !== 'function') throw new TypeError('Embedded SSO requires PostgreSQL');
   const router = express.Router();
   router.post('/session', express.json({ limit: '8kb', strict: true }), async (req, res) => {
+    if (!env.APP_ORIGIN || req.get('origin') !== env.APP_ORIGIN.replace(/\/$/, '')) return res.status(403).json({ error: 'Embedded session origin is invalid' });
     const client = await pool.connect();
     try {
-      const payload = verifyAssertion(req.body?.assertion, env.GHL_EMBEDDED_SIGNING_SECRET);
+      const payload = req.body?.encryptedData ? decryptUserContext(req.body.encryptedData, env.GHL_APP_SHARED_SECRET) : verifyAssertion(req.body?.assertion, env.GHL_EMBEDDED_SIGNING_SECRET);
       await client.query('BEGIN');
       const claimed = await client.query('INSERT INTO ghl_embedded_bootstrap_states(id,nonce_hash,expires_at) VALUES($1,$2,to_timestamp($3)) ON CONFLICT(nonce_hash) DO NOTHING RETURNING id', [crypto.randomUUID(), crypto.createHash('sha256').update(String(payload.nonce)).digest('hex'), payload.exp]);
       if (!claimed.rowCount) { await client.query('ROLLBACK'); return res.status(409).json({ error: 'Embedded context has already been used', code: 'GHL_EMBEDDED_REPLAY' }); }
@@ -35,7 +37,7 @@ function createGhlEmbeddedRouter({ pool, store, env = process.env } = {}) {
       if (!row || (payload.installationId && payload.installationId !== row.installation_id)) { await client.query('ROLLBACK'); return res.status(403).json({ error: 'HighLevel context is not authorized for this location', code: 'GHL_EMBEDDED_TENANT_DENIED' }); }
       await client.query('UPDATE ghl_embedded_bootstrap_states SET used_at=now() WHERE nonce_hash=$1', [crypto.createHash('sha256').update(String(payload.nonce)).digest('hex')]);
       await client.query('COMMIT');
-      req.session.regenerate(error => { if (error) return res.status(503).json({ error: 'Could not start embedded session' }); req.session.userId = row.user_id; req.session.ghlEmbedded = true; req.session.ghlLocationId = row.location_id; req.session.ghlWorkspaceId = row.workspace_id; req.session.csrfToken = crypto.randomBytes(24).toString('hex'); req.session.cookie.maxAge = 30 * 60 * 1000; req.session.save(saveError => saveError ? res.status(503).json({ error: 'Could not save embedded session' }) : res.json({ authenticated: true, csrfToken: req.session.csrfToken, redirect: '/' })); });
+      req.session.regenerate(error => { if (error) return res.status(503).json({ error: 'Could not start embedded session' }); req.session.userId = row.user_id; req.session.ghlEmbedded = true; req.session.ghlLocationId = row.location_id; req.session.ghlWorkspaceId = row.workspace_id; req.session.csrfToken = crypto.randomBytes(24).toString('hex'); req.session.cookie.maxAge = 30 * 60 * 1000; req.session.save(saveError => saveError ? res.status(503).json({ error: 'Could not save embedded session' }) : res.json({ authenticated: true, csrfToken: req.session.csrfToken, redirect: '/whatsapp-settings.html' })); });
     } catch (error) { try { await client.query('ROLLBACK'); } catch {} res.status(error.status || 503).json({ error: error.message, code: error.code || 'GHL_EMBEDDED_SESSION_FAILED' }); } finally { client.release(); }
   });
   router.get('/session', (req, res) => { const user = authUser(req, store); if (!user || !req.session.ghlEmbedded) return res.status(401).json({ authenticated: false }); res.json({ authenticated: true, user: store.publicUser(user), workspaceId: req.session.ghlWorkspaceId, locationId: req.session.ghlLocationId }); });

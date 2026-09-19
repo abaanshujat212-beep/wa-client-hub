@@ -43,5 +43,5 @@
     gate.innerHTML = '<strong>Calling — POC / provider approval required.</strong><p>CRM readiness does not enable live calling. Calling remains blocked by issue #51.</p>';
     card.parentElement.insertBefore(gate, card);
   }
-  window.addEventListener('load', () => setTimeout(install, 0));
+  window.addEventListener('dashboard-ready', () => setTimeout(install, 0));
 })();

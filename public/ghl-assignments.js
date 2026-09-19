@@ -24,5 +24,5 @@
   }
   async function assign(event){ event.preventDefault(); const workspaceId=document.querySelector('#ghlAssignmentWorkspace').value; const body=Object.fromEntries(new FormData(event.currentTarget)); body.whatsappNumberId=document.querySelector('#ghlAssignmentNumber').value; try{await request(`/api/workspaces/${workspaceId}/number-assignments`,{method:'POST',body:JSON.stringify(body)});await load();}catch(e){alert(e.message);} }
   async function activate(event){ event.preventDefault(); const workspaceId=document.querySelector('#ghlAssignmentWorkspace').value; const body=Object.fromEntries(new FormData(event.currentTarget)); try{const result=await request('/api/activation/invite',{method:'POST',body:JSON.stringify({workspaceId,userId:body.userId})});const panel=document.querySelector('#ghlActivationResult');panel.textContent=location.origin+result.activationPath;panel.classList.remove('hidden');}catch(e){alert(e.message);} }
-  window.addEventListener('load', install);
+  window.addEventListener('dashboard-ready', install);
 })();

@@ -19,5 +19,5 @@
   }
   window.loadAdminSummary = loadAdminSummary;
   setInterval(loadAdminSummary, 10000);
-  window.addEventListener('load', loadAdminSummary);
+  window.addEventListener('dashboard-ready', loadAdminSummary);
 })();

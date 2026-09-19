@@ -5,6 +5,6 @@
       el.classList.toggle('off', status === 'needs_qr_scan');
     });
   }
-  window.addEventListener('load', enhanceStatusLabels);
+  window.addEventListener('dashboard-ready', enhanceStatusLabels);
   setInterval(enhanceStatusLabels, 2000);
 })();

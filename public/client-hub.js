@@ -1,14 +1,31 @@
 (() => {
   const status = document.querySelector('#status'); const detail = document.querySelector('#detail');
   const show = (title, body) => { status.textContent = title; detail.textContent = body; };
-  async function start(assertion) {
-    const response = await fetch('/api/ghl/embedded/session', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ assertion }) });
+  let started = false;
+  let attempts = 0;
+  let retryTimer;
+  async function start(encryptedData) {
+    if (started) return;
+    started = true;
+    clearTimeout(retryTimer);
+    show('Verifying HighLevel', 'User context received. Signing in securely…');
+    const response = await fetch('/api/ghl/embedded/session', { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ encryptedData }) });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || 'Embedded sign-in was rejected');
-    location.replace(payload.redirect || '/');
+    location.replace('/whatsapp-settings.html');
   }
-  window.addEventListener('message', event => { if (event.data?.type === 'ghl-signed-context' && event.data.assertion) start(event.data.assertion).catch(error => show('Could not sign in', error.message)); });
-  window.parent?.postMessage({ type: 'wa-client-hub-ready' }, '*');
-  if (window.GHL_EMBEDDED_ASSERTION) start(window.GHL_EMBEDDED_ASSERTION).catch(error => show('Could not sign in', error.message));
-  setTimeout(() => { if (status.textContent === 'Connecting…') show('Waiting for HighLevel', 'The signed user context was not received. Refresh the custom page or contact the workspace administrator.'); }, 8000);
+  const parents = new Set(['https://crm.10xcollab.com', 'https://app.gohighlevel.com', 'https://marketplace.gohighlevel.com', 'https://app.leadconnectorhq.com']);
+  window.addEventListener('message', event => {
+    if (event.source !== window.parent || !parents.has(event.origin)) return;
+    if (event.data?.message === 'REQUEST_USER_DATA_RESPONSE' && typeof event.data.payload === 'string') start(event.data.payload).catch(error => show('Could not sign in', error.message));
+  });
+  function requestContext() {
+    if (started) return;
+    if (window.parent === window) return show('Open inside HighLevel', 'Open 10x WA Hub from your HighLevel location to sign in automatically.');
+    if (attempts >= 10) return show('HighLevel did not respond', 'No user-context reply after 10 attempts. Check that this page is configured in this app’s Marketplace Custom Page module. Handshake version: 20260918-2.');
+    attempts += 1;
+    window.parent.postMessage({ message: 'REQUEST_USER_DATA' }, '*');
+    retryTimer = setTimeout(requestContext, 2000);
+  }
+  requestContext();
 })();

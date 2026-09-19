@@ -1,4 +1,5 @@
 const crypto = require('node:crypto');
+const { GhlAgencyInstallService } = require('./ghlAgencyInstall');
 const bcrypt = require('bcryptjs');
 const express = require('express');
 const base = require('./ghlPrivatePilotHardened');
@@ -133,14 +134,15 @@ function createGhlAutoProvisioningRuntime({ store, env = process.env, fetchImpl 
   const config = base.config(env);
   const service = new GhlProvisioningService({ pool: store.repository.pool, vault: runtime.repository.vault, env });
   const marketplaceInstall = new GhlMarketplaceInstallService({ pool: store.repository.pool, env });
-  const marketplaceInstallRouter = createGhlMarketplaceInstallRouter({ service: marketplaceInstall, env });
+  const agencyInstall = new GhlAgencyInstallService({ pool: store.repository.pool, vault: runtime.repository.vault, client: runtime.client, provisioning: service, marketplaceInstall, env, fetchImpl });
+  const marketplaceInstallRouter = createGhlMarketplaceInstallRouter({ service: marketplaceInstall, env, onInstall: event => agencyInstall.onInstall(event) });
   const oauthRouter = express.Router();
   oauthRouter.get('/start', async (req, res) => {
     try {
       const user = req.session?.userId ? store.findUser(req.session.userId) : null;
       if (!user || !user.active) return res.status(401).json({ error: 'Sign in before connecting HighLevel' });
       const rawState = await service.createState({ actorUserId: user.id });
-      const url = new URL(config.authUrl); url.searchParams.set('response_type', 'code'); url.searchParams.set('client_id', config.clientId); url.searchParams.set('redirect_uri', config.redirectUri); url.searchParams.set('scope', config.requiredScopes.join(' ')); url.searchParams.set('state', rawState); res.redirect(url.toString());
+      const url = new URL(config.authUrl); url.searchParams.set('response_type', 'code'); url.searchParams.set('client_id', config.clientId); url.searchParams.set('redirect_uri', config.redirectUri); url.searchParams.set('scope', [...new Set([...config.requiredScopes, ...(req.query.media === '1' ? ['medias.readonly','medias.write','contacts.write','conversations/message.write'] : []), ...(req.query.agency === '1' ? ['oauth.readonly', 'oauth.write'] : [])])].join(' ')); url.searchParams.set('state', rawState); res.redirect(url.toString());
     } catch (error) { res.status(error.status || 503).json({ error: error.message, code: error.code || 'GHL_OAUTH_START_FAILED' }); }
   });
   oauthRouter.get('/callback', async (req, res) => {
@@ -153,6 +155,12 @@ function createGhlAutoProvisioningRuntime({ store, env = process.env, fetchImpl 
       const token = await runtime.client.exchangeCode(code);
       const granted = token.scopes?.length ? token.scopes : config.requiredScopes;
       if (config.requiredScopes.some(scope => !granted.includes(scope))) return res.status(400).json({ error: 'HighLevel OAuth scopes are insufficient', code: 'GHL_SCOPES_INSUFFICIENT' });
+      if (token.userType === 'Company') {
+        const result = await agencyInstall.install(token, { fallbackUserId: state?.user_id || null, correlate: !state && requiresMarketplaceInstallCorrelation(env) });
+        res.set('Cache-Control', 'no-store');
+        const escape = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        return res.status(result.failed ? 207 : 200).type('html').send('<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Agency installation</title><body><main><h1>Agency installation</h1><p>' + result.connected + ' locations connected. ' + result.failed + ' locations need attention.</p>' + (!result.results.length ? '<p>No installed locations were returned yet. Select sub-accounts in the GHL installation screen and retry.</p>' : '<ul>' + result.results.map(item => '<li>' + escape(item.locationId) + ': ' + escape(item.status) + (item.code ? ' (' + escape(item.code) + ')' : '') + '</li>').join('') + '</ul>') + '<p>You can open WA Hub inside each connected sub-account.</p><a href="/oauth/crm/start?agency=1">Retry agency connection</a> · <a href="/settings/integrations">Back to integrations</a></main></body></html>');
+      }
       const profile = await fetchUserProfile(runtime.client, token.accessToken, token.userId, fetchImpl);
       const identity = normalizeIdentity({ token, profile });
       if (!state && requiresMarketplaceInstallCorrelation(env)) {
@@ -164,7 +172,7 @@ function createGhlAutoProvisioningRuntime({ store, env = process.env, fetchImpl 
       res.redirect(destination);
     } catch (error) { res.status(error.status || 503).json({ error: error.message, code: error.code || 'GHL_OAUTH_CALLBACK_FAILED' }); }
   });
-  return { ...runtime, oauthRouter, provisioning: service, marketplaceInstall, marketplaceInstallRouter };
+  return { ...runtime, oauthRouter, provisioning: service, agencyInstall, marketplaceInstall, marketplaceInstallRouter };
 }
 
 module.exports = { GhlProvisioningService, ROLE_MAP, mapGhlRole, requiresMarketplaceInstallCorrelation, normalizeIdentity, fetchUserProfile, stableId, createGhlAutoProvisioningRuntime };

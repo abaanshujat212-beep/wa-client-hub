@@ -23,5 +23,5 @@
     } catch {}
   }
   setInterval(loadRemoteDesktop, 2000);
-  window.addEventListener('load', loadRemoteDesktop);
+  window.addEventListener('dashboard-ready', loadRemoteDesktop);
 })();

@@ -84,6 +84,32 @@ class MetaTemplateSyncService {
   async list(scope) {
     return { templates: await this.repository.list(scope) };
   }
+
+  async create(scope, input) {
+    const name = String(input?.name || '').trim();
+    const language = String(input?.language || '').trim();
+    const category = String(input?.category || '').trim().toUpperCase();
+    const body = String(input?.body || '').trim();
+    if (!/^[a-z0-9_]{1,512}$/.test(name) || !/^[a-z]{2,3}(?:_[A-Z]{2})?$/.test(language) || !CATEGORIES.has(category) || body.length < 1 || body.length > 1024) {
+      throw new MetaTemplateSyncError('META_TEMPLATE_INPUT_INVALID', 'Template fields are invalid');
+    }
+    const target = await this.repository.target(scope);
+    let created;
+    try {
+      created = await this.graphClient.request({
+        path: [target.wabaId, 'message_templates'],
+        accessToken: target.accessToken,
+        method: 'POST',
+        body: { name, language, category, components: [{ type: 'BODY', text: body }] }
+      });
+    } catch (error) {
+      if (error instanceof MetaGraphError) throw error;
+      throw new MetaTemplateSyncError('META_TEMPLATE_SYNC_UNAVAILABLE');
+    }
+    if (!created || typeof created !== 'object' || created.success !== true && typeof created.id !== 'string') throw new MetaTemplateSyncError('META_TEMPLATE_CREATE_FAILED');
+    const synced = await this.sync(scope);
+    return { created: { id: created.id || null, name, language, category }, ...synced };
+  }
 }
 
 module.exports = { MetaTemplateSyncService, normalizeRemoteTemplate };

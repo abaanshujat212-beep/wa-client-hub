@@ -16,8 +16,8 @@
     if (!panel) return;
     var heading = panel.querySelector("strong");
     var button = panel.querySelector("#metaSignupButton");
-    if (heading) heading.textContent = "Connect WhatsApp with Meta";
-    if (button) button.textContent = "Connect WhatsApp with Meta";
+    if (heading && heading.textContent !== "Connect WhatsApp with Meta") heading.textContent = "Connect WhatsApp with Meta";
+    if (button && button.textContent !== "Connect WhatsApp with Meta") button.textContent = "Connect WhatsApp with Meta";
     var status = panel.querySelector("#metaSignupStatus");
     if (status && status.textContent.trim() && !status.dataset.providerLabeled) {
       status.textContent = status.textContent.split("\n").map(function (line) {

@@ -46,5 +46,5 @@
   }
 
   setInterval(addButtons, 2000);
-  window.addEventListener('load', addButtons);
+  window.addEventListener('dashboard-ready', addButtons);
 })();

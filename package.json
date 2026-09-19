@@ -13,8 +13,11 @@
     "db:export-json": "node scripts/export-postgres-to-json.js",
     "meta-signup:cleanup": "node scripts/cleanup-meta-signup.js"
   },
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
+    "@openrouter/sdk": "^1.2.145",
     "bcryptjs": "^3.0.2",
     "connect-pg-simple": "^10.0.0",
     "dotenv": "^17.2.3",

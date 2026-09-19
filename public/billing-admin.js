@@ -45,5 +45,5 @@
   });
 
   setInterval(enhanceBillingControls, 2000);
-  window.addEventListener('load', enhanceBillingControls);
+  window.addEventListener('dashboard-ready', enhanceBillingControls);
 })();

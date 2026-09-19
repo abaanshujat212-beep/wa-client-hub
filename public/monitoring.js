@@ -22,5 +22,5 @@
   }
   window.loadMonitoring = loadMonitoring;
   setInterval(loadMonitoring, 10000);
-  window.addEventListener('load', loadMonitoring);
+  window.addEventListener('dashboard-ready', loadMonitoring);
 })();

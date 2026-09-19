@@ -15,6 +15,8 @@ function mapError(error) {
   if (code === 'META_TEMPLATE_BINDING_CHANGED') return { status: 409, body: { error: 'Meta template target changed; retry the synchronization', code } };
   if (code === 'META_CREDENTIALS_UNAVAILABLE') return { status: 409, body: { error: 'Meta credentials are unavailable', code } };
   if (code === 'META_TEMPLATE_PAYLOAD_INVALID' || code === 'META_TEMPLATE_PAGE_LIMIT') return { status: 502, body: { error: 'Meta returned an invalid template catalog', code: 'META_TEMPLATE_SYNC_INVALID' } };
+  if (code === 'META_TEMPLATE_INPUT_INVALID') return { status: 400, body: { error: 'Template name, language, category or body is invalid', code } };
+  if (code === 'META_TEMPLATE_CREATE_FAILED') return { status: 502, body: { error: 'Meta did not accept the template', code } };
   if (code.startsWith('META_HTTP_') || code === 'META_TIMEOUT' || code === 'META_NETWORK_ERROR' || code === 'META_TEMPLATE_SYNC_UNAVAILABLE') return { status: 503, body: { error: 'Meta template synchronization is temporarily unavailable', code: 'META_TEMPLATE_SYNC_UNAVAILABLE' } };
   return { status: 503, body: { error: 'Meta template synchronization is temporarily unavailable', code: 'META_TEMPLATE_SYNC_UNAVAILABLE' } };
 }
@@ -24,7 +26,7 @@ function createMetaTemplateSyncRouter({ enabled = false, pool, service, origin }
   const router = express.Router({ mergeParams: true });
   router.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
   if (enabled !== true) { router.use((_req, res) => res.status(404).json({ error: 'Not found' })); return router; }
-  if (!validateOrigin(origin) || typeof pool?.query !== 'function' || typeof service?.sync !== 'function' || typeof service?.list !== 'function') throw new TypeError('Enabled Meta template sync requires HTTPS origin, PostgreSQL and service');
+  if (!validateOrigin(origin) || typeof pool?.query !== 'function' || typeof service?.sync !== 'function' || typeof service?.list !== 'function' || typeof service?.create !== 'function') throw new TypeError('Enabled Meta template sync requires HTTPS origin, PostgreSQL and service');
 
   async function currentActor(req, res) {
     if (!validId(req.params.connectionId) || typeof req.session?.userId !== 'string' || !req.session.userId || typeof req.sessionID !== 'string' || !req.sessionID) { res.status(401).json({ error: 'Please sign in' }); return null; }
@@ -59,6 +61,16 @@ function createMetaTemplateSyncRouter({ enabled = false, pool, service, origin }
     try {
       const result = await service.sync({ actorId: req.session.userId, workspaceId: req.body.workspaceId, connectionId: req.params.connectionId, numberId: req.body.numberId });
       res.json(result);
+    } catch (error) {
+      const mapped = mapError(error); res.status(mapped.status).json(mapped.body);
+    }
+  });
+
+  router.post('/create', writeGuard, require('express').json({ limit: '4kb', strict: true }), async (req, res) => {
+    const body = req.body || {};
+    if (!validScope({ workspaceId: body.workspaceId, numberId: body.numberId })) return res.status(400).json({ error: 'Exact workspace and number scope is required' });
+    try {
+      res.json(await service.create({ actorId: req.session.userId, workspaceId: body.workspaceId, connectionId: req.params.connectionId, numberId: body.numberId }, body));
     } catch (error) {
       const mapped = mapError(error); res.status(mapped.status).json(mapped.body);
     }

@@ -3,6 +3,16 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { parseMessage, createSignupCoordinator, FACEBOOK_ORIGINS } = require('../public/meta-signup');
+const { signupErrorMessage } = require('../public/meta-signup');
+test('start errors explain rate limits and recovery without exposing server details', () => {
+  assert.match(signupErrorMessage({ status: 429, retryAfter: 121 }), /Wait 3 minute/);
+  assert.match(signupErrorMessage({ status: 401 }), /Sign in again/);
+  assert.match(signupErrorMessage({ status: 403 }), /Refresh this page/);
+  assert.match(signupErrorMessage({ status: 400 }), /at least 2 characters/);
+  assert.match(signupErrorMessage({ status: 503 }), /temporarily unavailable/);
+  assert.match(signupErrorMessage({ code: 'META_SDK_LOAD_FAILED' }), /Facebook could not load/);
+  assert.doesNotMatch(signupErrorMessage(new Error('private detail')), /private detail/);
+});
 function fixture() {
   const completed = []; const cancelled = []; const statuses = [];
   const coordinator = createSignupCoordinator({ complete: async body => { completed.push(body); }, cancel: async body => { cancelled.push(body); }, onStatus: status => statuses.push(status), closeGraceMs: 1, assetWaitMs: 20 });
@@ -38,6 +48,30 @@ test('intermediate CANCEL does not destroy state before later FINISH', async () 
 });
 test('popup dismissal without code or FINISH cancels exactly once', async () => {
   const f = fixture(); f.coordinator.popupClosed(); await f.coordinator.finalizePopupClose(); await f.coordinator.finalizePopupClose(); assert.deepEqual(f.cancelled, [{ state: 'state-1' }]); assert.equal(f.statuses.at(-1).message, 'Signup cancelled.');
+});
+
+test('empty SDK callback preserves signup while popup remains open', async () => {
+  const f = fixture();
+  await f.coordinator.receiveLoginResult({ status: 'unknown' });
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assert.equal(f.coordinator.active('state-1'), true);
+  assert.equal(f.cancelled.length, 0);
+  assert.equal(f.statuses.at(-1).terminal, false);
+  await f.coordinator.receiveFinish({ businessAccountId: '123', phoneNumberId: '456' });
+  await f.coordinator.receiveLoginResult({ authResponse: { code: 'later-code' } });
+  assert.equal(f.completed.length, 1);
+  assert.equal(f.cancelled.length, 0);
+});
+
+test('empty callback still permits explicit cancellation and isolates retries', async () => {
+  const f = fixture();
+  await f.coordinator.receiveLoginResult(null);
+  await f.coordinator.explicitCancel();
+  assert.equal(f.cancelled.length, 1);
+  f.coordinator.start('state-2');
+  assert.equal(f.coordinator.active('state-1'), false);
+  assert.equal(f.coordinator.active('state-2'), true);
+  await f.coordinator.explicitCancel();
 });
 test('ERROR normalizes the UI message and permits a fresh retry', async () => {
   const f = fixture(); await f.coordinator.receiveError('META_INTERNAL_REASON'); assert.equal(f.cancelled.length, 1); assert.equal(f.statuses.at(-1).message, 'Signup failed. Start a new signup.');

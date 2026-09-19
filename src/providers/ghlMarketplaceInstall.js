@@ -91,7 +91,7 @@ class GhlMarketplaceInstallService {
   }
 }
 
-function createGhlMarketplaceInstallRouter({ service, env = process.env } = {}) {
+function createGhlMarketplaceInstallRouter({ service, env = process.env, onInstall } = {}) {
   if (!service) throw new TypeError('HighLevel Marketplace install router requires a correlation service');
   const router = express.Router();
   router.post('/', express.raw({ type: 'application/json', limit: '256kb' }), async (req, res) => {
@@ -101,6 +101,7 @@ function createGhlMarketplaceInstallRouter({ service, env = process.env } = {}) 
     try {
       const payload = JSON.parse(raw.toString('utf8'));
       const event = await service.record(payload);
+      if (onInstall) await onInstall(event);
       return res.status(202).json({ accepted: true, event: event.type, webhookId: event.webhookId });
     } catch (error) {
       return res.status(error.status || 503).json({ error: error.message, code: error.code || 'GHL_MARKETPLACE_INSTALL_FAILED' });

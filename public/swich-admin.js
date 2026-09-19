@@ -53,5 +53,5 @@
   }
 
   setInterval(function(){ addSwichButtons(); addGlobalTokenButton(); }, 2000);
-  window.addEventListener('load', function(){ addSwichButtons(); addGlobalTokenButton(); });
+  window.addEventListener('dashboard-ready', function(){ addSwichButtons(); addGlobalTokenButton(); });
 })();

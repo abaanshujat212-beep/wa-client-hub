@@ -49,5 +49,5 @@ CONNECTOR_MASTER_KEY=&lt;base64 32-byte key&gt;</pre><p>Run <code>npm run db:mig
     navButton.addEventListener('click', () => { document.querySelectorAll('.view').forEach(x => x.classList.add('hidden')); document.querySelectorAll('.nav-item').forEach(x => x.classList.remove('active')); view.classList.remove('hidden'); navButton.classList.add('active'); document.querySelector('#pageTitle').textContent = 'Setup docs'; document.querySelector('.sidebar').classList.remove('open'); });
     view.addEventListener('click', event => { const button = event.target.closest('[data-copy]'); if (button) copy(button.dataset.copy, button); });
   }
-  window.addEventListener('load', install);
+  window.addEventListener('dashboard-ready', install);
 })();

@@ -8,7 +8,8 @@ const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 test('authenticated dashboard loads one Meta signup implementation and the feature gate', () => {
   const index = read('public/index.html');
   const ui = read('public/meta-only-ui.js');
-  assert.match(index, /<script src="\/dashboard\.js\?v=[^"]+" defer><\/script>/);
+  assert.doesNotMatch(index, /<script src="\/dashboard\.js/);
+  assert.match(read("public/app.js"), /script.src = "\/dashboard\.js\?v=/);
   assert.doesNotMatch(index, /<script src="\/meta-signup\.js/);
   assert.match(ui, /Connect WhatsApp with Meta/);
   assert.match(ui, /openwaEnabled !== true/);

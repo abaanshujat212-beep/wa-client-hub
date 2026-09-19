@@ -15,9 +15,25 @@ test('dashboard session bootstrap has a finite client timeout', () => {
   const index = read('public/index.html');
   const bootstrap = read('public/session-bootstrap.js');
   assert.match(index, /session-bootstrap\.js\?v=/);
-  assert.match(index, /session-bootstrap\.js.*app\.js.*dashboard\.js/);
+  assert.match(index, /session-bootstrap\.js.*app\.js/);
   assert.match(bootstrap, /SESSION_TIMEOUT_MS = 10000/);
-  assert.match(bootstrap, /AbortController/);
-  assert.match(bootstrap, /api.*session/);
+  assert.match(bootstrap, /XMLHttpRequest/);
+  assert.match(bootstrap, /request\.timeout = SESSION_TIMEOUT_MS/);
+  assert.match(bootstrap, /api.*bootstrap/);
   assert.match(bootstrap, /SessionTimeoutError/);
+  assert.match(bootstrap, /DOMContentLoaded/);
+  assert.match(bootstrap, /SESSION_ATTEMPTS = 2/);
+  assert.match(bootstrap, /_session_retry/);
+  assert.match(read('public/app.js'), /window\.fetchSession/);
+  assert.match(read('src/server.js'), /app\.get\("\/api\/bootstrap"/);
+  assert.match(read('src/server.js'), /createLoginCsrfToken/);
+  assert.match(read('src/server.js'), /validLoginCsrfToken/);
+  assert.match(read('src/server.js'), /app\.get\(\["\/", "\/index\.html"\], serveIndex\)/);
+  assert.match(read('src/server.js'), /req\.session\.save/);
+  assert.match(index, /SESSION_BOOTSTRAP/);
+  assert.match(bootstrap, /window\.__SESSION_BOOTSTRAP__/);
+  assert.doesNotMatch(bootstrap, /window\.stop/);
+
+  assert.match(read('src/server.js'), /window\.__SESSION_BOOTSTRAP__/);
+  assert.match(read('src/server.js'), /"Content-Length": String\(body\.length\)/);
 });

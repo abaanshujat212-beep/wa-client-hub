@@ -2,7 +2,7 @@ require('dotenv').config();
 const serverModule = require('./server');
 const { createGhlAutoProvisioningRuntime } = require('./providers/ghlAutoProvisioning');
 const { createGhlEmbeddedRouter, createActivationRouter, createAssignmentRouter } = require('./providers/ghlEmbeddedSso');
-const { createGhlInboundBridge } = require('./providers/ghlInboundBridge');
+const { GhlMessageSync, createSyncRouter } = require('./providers/ghlMessageSync');
 const { createGhlCallRouter, enabled: ghlCallingEnabled } = require('./providers/ghlCallProvider');
 const { createMetaSignupRuntime } = require('./messaging/metaSignupRuntime');
 const { createMetaCallingRouter, enabled: metaCallingEnabled } = require('./messaging/metaCallingRoutes');
@@ -19,8 +19,9 @@ const ycloudEnabled = String(process.env.YCLOUD_ENABLED || 'false').toLowerCase(
 serverModule.app.get('/api/features', (req, res) => { const user = req.session?.userId && serverModule.store.findUser(req.session.userId); if (!user || !user.active) return res.status(401).json({ error: 'Please sign in' }); res.json({ openwaEnabled: openWaEnabled, metaSignupEnabled: metaSignupEnabled, ycloudEnabled: ycloudEnabled }); });
 
 const ghl = createGhlAutoProvisioningRuntime({ env: process.env, store: serverModule.store });
-const ghlInbound = ghl.enabled ? createGhlInboundBridge({ pool: serverModule.store.repository.pool, deliverInboundWhatsApp: ghl.deliverInboundWhatsApp }) : null;
-const inbound = ghlInbound ? ghlInbound.deliver.bind(ghlInbound) : null;
+const ghlSync = ghl.enabled ? new GhlMessageSync({pool:serverModule.store.repository.pool,runtime:ghl}) : null;
+const ghlInbound = null;
+const inbound = null;
 const ghlCalls = createGhlCallRouter({ enabled: ghlCallingEnabled(process.env), pool: serverModule.store.repository.pool, publicKey: process.env.GHL_PUBLIC_KEY });
 prependExactRouter(serverModule.app, '/webhooks/ghl/calls', ghlCalls);
 const metaWebhook = createMetaWebhookRuntime({ env: process.env, store: serverModule.store, onInboundMessage: inbound });
@@ -50,6 +51,8 @@ if (serverModule.store.driver === 'postgres') {
 }
 
 if (ghl.enabled && ghl.apiRouter && serverModule.store.driver === 'postgres') {
+  serverModule.app.use('/api/ghl/message-sync',createSyncRouter({service:ghlSync,store:serverModule.store}));
+  serverModule.app.use('/api/ghl/team', require('./providers/ghlTeam').createGhlTeamRouter({pool:serverModule.store.repository.pool,store:serverModule.store,runtime:ghl}));
   ghl.apiRouter.get('/readiness', async (req, res) => {
     const user = req.session?.userId && serverModule.store.findUser(req.session.userId);
     const workspaceId = String(req.query.workspaceId || '');
@@ -81,9 +84,9 @@ serverModule.app.use((error, req, res, next) => { if (!req.path.startsWith('/api
 serverModule.app.use('/api', (_req, res) => res.status(404).json({ error: 'Feature is not enabled' }));
 
 async function runMain() {
-  const server = await serverModule.start(); metaSignup.start(); metaWebhook.start(); ycloudWebhook.start(); let closing = false;
-  const shutdown = async () => { if (closing) return; closing = true; metaSignup.stop(); metaWebhook.stop(); ycloudWebhook.stop(); await new Promise(resolve => server.close(resolve)); await serverModule.dependencies.close(); if (typeof serverModule.store.close === 'function') await serverModule.store.close(); process.exit(0); };
+  const server = await serverModule.start(); metaSignup.start(); metaWebhook.start(); ycloudWebhook.start(); ghlSync?.start(); let closing = false;
+  const shutdown = async () => { if (closing) return; closing = true; metaSignup.stop(); metaWebhook.stop(); ycloudWebhook.stop(); ghlSync?.stop(); await new Promise(resolve => server.close(resolve)); await serverModule.dependencies.close(); if (typeof serverModule.store.close === 'function') await serverModule.store.close(); process.exit(0); };
   process.once('SIGINT', shutdown); process.once('SIGTERM', shutdown); return server;
 }
 if (require.main === module) runMain().catch(error => { console.error(error.message); process.exit(1); });
-module.exports = { ...serverModule, metaSignup, metaLifecycle, metaWebhook, ycloudWebhook, metaCalling, ghl, ghlInbound, ghlCalls, runMain };
+module.exports = { ...serverModule, metaSignup, metaLifecycle, metaWebhook, ycloudWebhook, metaCalling, ghl, ghlInbound, ghlSync, ghlCalls, runMain };

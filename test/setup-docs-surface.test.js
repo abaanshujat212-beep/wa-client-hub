@@ -13,7 +13,8 @@ test('setup docs expose the permanent neutral CRM OAuth and webhook endpoints', 
   assert.ok(!page.includes('/oauth/highlevel/callback'));
   assert.ok(page.includes('GHL_REQUIRED_SCOPES=conversations.write'));
   assert.ok(page.includes('conversationProviderId'));
-  assert.ok(read('public/index.html').includes('crm-readiness.js'));
+  assert.ok(read('public/app.js').includes('dashboard.js'));
+  assert.ok(read('public/crm-readiness.js').includes('/api/ghl/readiness'));
 });
 
 test('example environment uses the neutral callback without secrets', () => {

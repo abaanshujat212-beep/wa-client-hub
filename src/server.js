@@ -40,6 +40,7 @@ const { createStripeRouter } = require("./billing/stripeRoutes");
 const { createServerTiming } = require("./serverTiming");
 
 const rootDir = path.resolve(__dirname, "..");
+const indexTemplate = fs.readFileSync(path.join(rootDir, "public", "index.html"), "utf8");
 const dashboardBundle = ["meta-signup.js", "meta-only-ui.js", "remote-desktop.js", "monitoring.js", "admin-summary.js", "client-self-service.js", "session-status.js", "billing-admin.js", "swich-admin.js", "whop-admin.js", "integrations.js", "crm-readiness.js", "setup-docs.js", "ghl-assignments.js"].map((file) => fs.readFileSync(path.join(rootDir, "public", file), "utf8")).join(";\n");
 const app = express();
 const store = createStore(rootDir);
@@ -57,6 +58,7 @@ const genericApiRepository = store.driver === "postgres" ? new GenericApiReposit
 const FileStore = FileStoreFactory(session);
 const PgStore = PgStoreFactory(session);
 const port = Number(process.env.PORT || 3131);
+const sessionSecret = process.env.SESSION_SECRET || "development-only-secret-change-this-now";
 const sessionStore = store.driver === "postgres"
   ? new PgStore({ pool: store.repository.pool, tableName: "user_sessions", createTableIfMissing: true })
   : new FileStore({ path: path.join(rootDir, "data", "sessions"), ttl: 60 * 60 * 12, retries: 1 });
@@ -64,12 +66,30 @@ const sessionStore = store.driver === "postgres"
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
 app.use(createServerTiming());
-app.use(helmet({ contentSecurityPolicy: false }));
+app.use(helmet({ contentSecurityPolicy: false, xFrameOptions: false }));
+// All dashboard entry points (including deep links and static HTML) can be
+// embedded by our CRM. Restrict framing using CSP instead of SAMEORIGIN.
+app.use((_req, res, next) => {
+  res.set("Content-Security-Policy", "frame-ancestors 'self' https://crm.10xcollab.com https://app.gohighlevel.com https://marketplace.gohighlevel.com https://app.leadconnectorhq.com");
+  next();
+});
+// The dashboard opens Meta OAuth popups and must retain their opener channel.
+app.use(["/", "/index.html"], (req, res, next) => {
+  if (req.path === "/" || req.path === "/index.html") {
+    res.set("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+    // HighLevel renders the client hub as a custom-page iframe. Helmet's
+    // default SAMEORIGIN frame guard blocks that cross-origin embedding.
+    res.removeHeader("X-Frame-Options");
+  }
+  next();
+});
 app.use(express.json({ limit: "2mb", verify: (req, _res, buffer) => { if (req.originalUrl === "/api/billing/stripe/webhook" || /^\/api\/(connectors|providers)\/[^/]+\/(webhook|shopify|woocommerce|ghl)$/.test(req.originalUrl)) req.rawBody = Buffer.from(buffer); } }));
-app.use(session({ store: sessionStore, name: "wa_hub_session", secret: process.env.SESSION_SECRET || "development-only-secret-change-this-now", resave: false, saveUninitialized: false, cookie: { httpOnly: true, secure: process.env.COOKIE_SECURE === "true" ? true : "auto", sameSite: "lax", maxAge: 1000 * 60 * 60 * 12 } }));
+app.use(session({ store: sessionStore, name: "wa_hub_session", secret: sessionSecret, resave: false, saveUninitialized: false, cookie: { httpOnly: true, secure: process.env.COOKIE_SECURE === "true" ? true : "auto", sameSite: "lax", maxAge: 1000 * 60 * 60 * 12 } }));
 
 const loginLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false });
-function csrf(req, res, next) { if (!req.path.startsWith("/api/")) return next(); if (!req.session.csrfToken) req.session.csrfToken = crypto.randomBytes(24).toString("hex"); const externalWebhook = req.path.startsWith("/api/billing/swich/webhook") || req.path.startsWith("/api/billing/whop/webhook") || req.path.startsWith("/api/billing/stripe/webhook") || req.path === "/api/openwa/webhook" || req.path.startsWith("/api/generic/v1/") || /^\/api\/(connectors|providers)\/[^/]+\/(webhook|shopify|woocommerce|ghl)$/.test(req.path); if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method) && req.path !== "/api/invites/accept" && !externalWebhook && req.get("x-csrf-token") !== req.session.csrfToken) return res.status(403).json({ error: "Security token is invalid. Refresh and try again." }); next(); }
+function createLoginCsrfToken() { const timestamp = String(Date.now()); const signature = crypto.createHmac("sha256", sessionSecret).update(`login:${timestamp}`).digest("hex"); return `${timestamp}.${signature}`; }
+function validLoginCsrfToken(value) { const [timestamp, signature] = String(value || "").split("."); if (!/^\d{13}$/.test(timestamp || "") || !/^[a-f0-9]{64}$/.test(signature || "") || Math.abs(Date.now() - Number(timestamp)) > 5 * 60 * 1000) return false; const expected = crypto.createHmac("sha256", sessionSecret).update(`login:${timestamp}`).digest("hex"); return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected)); }
+function csrf(req, res, next) { if (!req.path.startsWith("/api/")) return next(); if (!req.session.csrfToken) req.session.csrfToken = crypto.randomBytes(24).toString("hex"); const externalWebhook = req.path.startsWith("/api/billing/swich/webhook") || req.path.startsWith("/api/billing/whop/webhook") || req.path.startsWith("/api/billing/stripe/webhook") || req.path === "/api/openwa/webhook" || req.path.startsWith("/api/generic/v1/") || /^\/api\/(connectors|providers)\/[^/]+\/(webhook|shopify|woocommerce|ghl)$/.test(req.path); const provided = req.get("x-csrf-token"); const validLoginToken = req.path === "/api/login" && validLoginCsrfToken(provided); if (["POST", "PATCH", "PUT", "DELETE"].includes(req.method) && req.path !== "/api/invites/accept" && !externalWebhook && !validLoginToken && provided !== req.session.csrfToken) return res.status(403).json({ error: "Security token is invalid. Refresh and try again." }); next(); }
 function requireAuth(req, res, next) { const user = req.session.userId && store.findUser(req.session.userId); if (!user || !user.active) return res.status(401).json({ error: "Please sign in" }); req.user = user; next(); }
 function requireAdmin(req, res, next) { if (req.user.role !== "admin") return res.status(403).json({ error: "Administrator access required" }); next(); }
 function billingAuth(router) { return [(req, res, next) => req.path === "/webhook" ? next() : requireAuth(req, res, () => requireAdmin(req, res, next)), router]; }
@@ -78,11 +98,16 @@ function isValidPhone(phone) { return /^\+?[0-9][0-9\s().-]{7,20}$/.test(String(
 function canAccess(user, account) { return account && store.canUseWorkspace(user, account.workspaceId); }
 function canManage(user, workspaceId) { return store.canManageWorkspace(user, workspaceId); }
 function remoteDesktopConfig() { return { enabled: Boolean(process.env.REMOTE_DESKTOP_URL), url: process.env.REMOTE_DESKTOP_URL || "", label: process.env.REMOTE_DESKTOP_LABEL || "Open Remote Desktop", help: process.env.REMOTE_DESKTOP_HELP || "Use secured RDP/Guacamole to access the Windows desktop." }; }
+function bootstrapPayload(req) { const user = req.session.userId && store.findUser(req.session.userId); return { authenticated: Boolean(user && user.active), user: user && user.active ? store.publicUser(user) : null, csrfToken: req.session.csrfToken, appName: process.env.APP_NAME || "WA Client Hub" }; }
+function serveIndex(req, res, next) { if (!req.session.csrfToken) req.session.csrfToken = crypto.randomBytes(24).toString("hex"); req.session.save((error) => { if (error) return next(error); const encoded = JSON.stringify(bootstrapPayload(req)).replace(/</g, "\\u003c"); const body = Buffer.from(indexTemplate.replace("<!--SESSION_BOOTSTRAP-->", `<script>window.__SESSION_BOOTSTRAP__=${encoded};</script>`), "utf8"); res.status(200).set({ "Content-Type": "text/html; charset=utf-8", "Content-Length": String(body.length) }).end(body); }); }
 function decorateAccount(account) { const launchStatus = launcher.status(account); const sessionStatus = accountSessionStatus(account, launchStatus); return { ...account, ...launchStatus, sessionStatus, sessionStatusLabel: statusLabel(sessionStatus) }; }
 
-app.use(csrf);
+app.get("/api/bootstrap", (req, res) => { res.set("Cache-Control", "no-store"); res.json({ ...bootstrapPayload(req), csrfToken: req.session.csrfToken || createLoginCsrfToken() }); });
+// Embedded bootstrap authenticates encrypted HighLevel context and checks its
+// Origin in its own handler; no session CSRF token exists before this exchange.
+app.use((req, res, next) => req.method === 'POST' && req.path === '/api/ghl/embedded/session' ? next() : csrf(req, res, next));
 app.get("/api/session", (req, res) => { res.set("Cache-Control", "no-store"); const user = req.session.userId && store.findUser(req.session.userId); res.json({ authenticated: Boolean(user && user.active), user: user && user.active ? store.publicUser(user) : null, csrfToken: req.session.csrfToken, appName: process.env.APP_NAME || "WA Client Hub" }); });
-app.post("/api/login", loginLimiter, async (req, res) => { const email = String(req.body.email || "").trim().toLowerCase(); const password = String(req.body.password || ""); const user = store.findUserByEmail(email); if (!user || !user.active || !(await bcrypt.compare(password, user.passwordHash))) { await store.addAudit(user?.id || "anonymous", "login.failed", { email, ip: req.ip }); return res.status(401).json({ error: "Email or password is incorrect" }); } req.session.regenerate(async (error) => { if (error) return res.status(500).json({ error: "Could not start session" }); req.session.userId = user.id; req.session.csrfToken = crypto.randomBytes(24).toString("hex"); await store.addAudit(user.id, "login", { ip: req.ip }); res.json({ user: store.publicUser(user), csrfToken: req.session.csrfToken }); }); });
+app.post("/api/login", loginLimiter, async (req, res) => { const origin = req.get("origin"); const expectedOrigin = `${req.protocol}://${req.get("host")}`; if (origin && origin !== expectedOrigin) return res.status(403).json({ error: "Login origin is invalid" }); const email = String(req.body.email || "").trim().toLowerCase(); const password = String(req.body.password || ""); const user = store.findUserByEmail(email); if (!user || !user.active || !(await bcrypt.compare(password, user.passwordHash))) { await store.addAudit(user?.id || "anonymous", "login.failed", { email, ip: req.ip }); return res.status(401).json({ error: "Email or password is incorrect" }); } req.session.regenerate(async (error) => { if (error) return res.status(500).json({ error: "Could not start session" }); req.session.userId = user.id; req.session.csrfToken = crypto.randomBytes(24).toString("hex"); await store.addAudit(user.id, "login", { ip: req.ip }); res.json({ user: store.publicUser(user), csrfToken: req.session.csrfToken }); }); });
 app.post("/api/logout", requireAuth, (req, res) => { const userId = req.user.id; req.session.destroy(async () => { await store.addAudit(userId, "logout"); res.json({ ok: true }); }); });
 
 app.use("/api/billing/swich", ...billingAuth(createSwichRouter({ store })));
@@ -129,8 +154,12 @@ app.get("/api/ready", async (_req, res) => {
 });
 app.get("/dashboard.js", (_req, res) => { res.type("text/javascript").set("Cache-Control", "public, max-age=31536000, immutable").send(dashboardBundle); });
 app.use((req, res, next) => { if (req.method === "GET" && (req.path === "/" || req.path.endsWith(".html"))) { res.set("Cache-Control", "no-store"); res.set("Cloudflare-CDN-Cache-Control", "no-store"); } next(); });
+app.get(["/", "/index.html"], (req, res, next) => {
+  if (req.get('sec-fetch-dest') === 'iframe') return res.redirect('/whatsapp-settings.html');
+  return serveIndex(req, res, next);
+});
 app.use(express.static(path.join(rootDir, "public"), { extensions: ["html"] }));
-app.get("/{*path}", (req, res, next) => /^\/(api|oauth|webhooks)(\/|$)/.test(req.path) ? next() : res.sendFile(path.join(rootDir, "public", "index.html")));
+app.get("/{*path}", (req, res, next) => /^\/(api|oauth|webhooks)(\/|$)/.test(req.path) ? next() : serveIndex(req, res, next));
 async function start() { const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com"; const adminPassword = process.env.ADMIN_PASSWORD || "ChangeMeNow123!"; assertSecurityConfig(process.env); await store.init({ adminEmail, adminPassword }); await dependencies.connect(); campaignWorker?.start(); connectorWorker?.start(); return app.listen(port, "0.0.0.0", () => console.log(`WA Client Hub running at http://localhost:${port} using ${store.driver} storage`)); }
 async function runMain() { const server = await start(); let closing = false; const shutdown = async () => { if (closing) return; closing = true; campaignWorker?.stop(); connectorWorker?.stop(); await new Promise((resolve) => server.close(resolve)); await dependencies.close(); if (typeof store.close === "function") await store.close(); process.exit(0); }; process.once("SIGINT", shutdown); process.once("SIGTERM", shutdown); }
 if (require.main === module) runMain().catch((error) => { console.error(error); process.exit(1); });

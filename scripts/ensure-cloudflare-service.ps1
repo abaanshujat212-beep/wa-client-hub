@@ -72,6 +72,9 @@ try {
       $line
     }
   }
+  if (-not ($updatedConfig | Where-Object { $_ -match '^\s*protocol\s*:' })) {
+    $updatedConfig = @('protocol: http2') + $updatedConfig
+  }
   Set-Content -LiteralPath $systemConfig -Value $updatedConfig -Encoding UTF8
 
   if ($service) { Stop-Service cloudflared -ErrorAction SilentlyContinue }

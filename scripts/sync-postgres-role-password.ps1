@@ -88,11 +88,11 @@ $container = Find-PostgresContainer
 $roleSql = SqlLiteral $role
 $dbSql = SqlLiteral $database
 $checkSql = "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname=$roleSql) THEN 'role-ok' ELSE 'role-missing' END; SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_database WHERE datname=$dbSql) THEN 'database-ok' ELSE 'database-missing' END;"
-$checkOutput = ($checkSql | & docker exec -i --user postgres $container psql -X -q -v ON_ERROR_STOP=1 -d postgres -tA 2>$null)
+$checkOutput = ($checkSql | & docker exec -i --user postgres $container psql -X -q -v ON_ERROR_STOP=1 -U $role -d postgres -tA 2>$null)
 if ($LASTEXITCODE -ne 0 -or -not ($checkOutput -contains 'role-ok') -or -not ($checkOutput -contains 'database-ok')) { throw 'PostgreSQL container discovered but PostgreSQL check failed: the expected wa_hub role and database were not verified.' }
 
 $escapedPassword = $password.Replace("'", "''")
-$alterSql = "ALTER ROLE \"$role\" PASSWORD '$escapedPassword';"
-$alterSql | & docker exec -i --user postgres $container psql -X -q -v ON_ERROR_STOP=1 -d postgres 2>$null | Out-Null
+$alterSql = "ALTER ROLE `"$role`" PASSWORD '$escapedPassword';"
+$alterSql | & docker exec -i --user postgres $container psql -X -q -v ON_ERROR_STOP=1 -U $role -d postgres 2>$null | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL container discovered but PostgreSQL password synchronization failed without changing or deleting the database volume.' }
 Write-Host 'PostgreSQL role password synchronized from the local deployment configuration.' -ForegroundColor Green
