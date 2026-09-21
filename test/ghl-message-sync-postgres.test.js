@@ -29,5 +29,25 @@ test('sync worker maps contacts, imports both directions, avoids duplicate CRM m
   await pool.query("UPDATE ghl_message_sync SET state='importing' WHERE message_id='in'");await service.tick();
   assert.equal((await pool.query("SELECT state FROM ghl_message_sync WHERE message_id='in'")).rows[0].state,'uncertain');
   assert.equal(calls.length,3);
+  const mediaCalls=[];
+  service.request=async(path,token,body)=>{mediaCalls.push(path);return path==='/medias/folder'?{id:'owned-folder'}:{fileId:'owned-file',url:'https://files.example.invalid/media.ogg'};};
+  const db=await pool.connect();
+  try {
+   const mapping={installation_id:'installation-external',location_id:'location',workspace_id:'workspace',scopes:['medias.write']};
+   const file={bytes:Buffer.from('audio fixture'),contentType:'audio/ogg'};
+   const url=await service.archive.upload(db,mapping,'token','source',file,'voice.ogg');
+   assert.equal(await service.archive.upload(db,mapping,'token','source',file,'voice.ogg'),url);
+   assert.deepEqual(mediaCalls,['/medias/folder','/medias/upload-file']);
+   assert.equal((await db.query("SELECT expires_at > now()+interval '89 days' AS retained FROM ghl_media_archive")).rows[0].retained,true);
+   await assert.rejects(service.archive.upload(db,{...mapping,scopes:[]},'token','other',file,'voice.ogg'),{code:'GHL_MEDIA_SCOPE_MISSING'});
+   service.request=async()=>{throw Object.assign(Error('timeout'),{code:'GHL_SYNC_NETWORK_ERROR',uncertain:true});};
+   await assert.rejects(service.archive.upload(db,mapping,'token','ambiguous',file,'voice.ogg'));
+   await assert.rejects(service.archive.upload(db,mapping,'token','ambiguous',file,'voice.ogg'),{code:'GHL_MEDIA_UPLOAD_UNCERTAIN'});
+   await db.query("UPDATE ghl_media_archive SET expires_at=now()-interval '1 second' WHERE state='ready'");
+   const deletions=[];service.fetchImpl=async(url,options)=>{deletions.push({url,method:options.method});return{ok:true};};service.archive.nextCleanup=0;
+   await service.archive.cleanup();
+   assert.equal(deletions.length,1);assert.match(deletions[0].url,/\/medias\/owned-file\?altId=location/);assert.equal(deletions[0].method,'DELETE');
+   assert.equal((await db.query("SELECT state FROM ghl_media_archive WHERE source_key='source'")).rows[0].state,'expired');
+  } finally {db.release();}
  }finally{await pool.end();await admin.query(`DROP SCHEMA ${schema} CASCADE`);await admin.end();}
 });

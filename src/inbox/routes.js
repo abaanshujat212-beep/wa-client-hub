@@ -14,6 +14,7 @@ function createInboxRouter({ store, repository, events, requireAuth, remoteDeskt
     return canonicalHandler;
   }
   router.use(requireAuth);
+  require("./templateComposer").registerTemplateComposer(router,{store,repository,events,workspaceIds,sendService});
   router.get("/conversations", async (req,res) => { try { res.json(await repository.listConversations({ ...req.query, workspaceIds: workspaceIds(req) })); } catch(error) { fail(res,error); } });
   router.get("/conversations/:id/messages", async (req,res) => { try { const result=await repository.listMessages(workspaceIds(req),req.params.id,req.query); if(!result)return res.status(404).json({error:"Conversation not found"}); res.json(result); } catch(error){ fail(res,error); } });
   router.post("/conversations/:id/messages", (req,res) => sendHandler()(req,res));

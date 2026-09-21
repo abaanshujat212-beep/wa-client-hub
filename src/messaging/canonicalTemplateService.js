@@ -42,7 +42,9 @@ class CanonicalTemplateService {
       throw new SendError(error.message, { code: error.code || 'TEMPLATE_PARAMETERS_INVALID', status: error.status || 409 });
     }
 
-    const body = `[template:${value.name}:${value.language}]`;
+    const bodyComponent=(approved.components||[]).find(c=>String(c.type).toUpperCase()==='BODY');
+    const params=value.components[0]?.parameters||[];
+    const body=String(bodyComponent?.text||`[template:${value.name}:${value.language}]`).replace(/{{\s*([a-z0-9_]+)\s*}}/gi, (match,key)=>{const parameter=/^\d+$/.test(key)?params[Number(key)-1]:params.find(p=>p.parameter_name===key);return parameter?.text??match;});
     const requestHash = crypto.createHash('sha256').update(JSON.stringify({ conversationId: dispatch.conversationId, type: 'template', template: value, origin: messageOrigin })).digest('hex');
     const reservation = await this.repository.reserveOutbound({ dispatch, idempotencyKey: key, requestHash });
     if (!reservation.created && reservation.attempt.request_hash !== requestHash) {

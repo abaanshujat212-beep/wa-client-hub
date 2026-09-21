@@ -3,6 +3,7 @@ const crypto = require('node:crypto');
 const express = require('express');
 const { MetaGraphClient } = require('../messaging/metaGraphClient');
 const { MetaMediaService } = require('../messaging/metaMediaService');
+const { MetaTemplateSyncService } = require('../messaging/metaTemplateSyncService');
 const error = (code, uncertain = false) => Object.assign(new Error(code), { code, uncertain });
 
 function importBody(message, mapping, contactId, attachments = []) {
@@ -12,21 +13,26 @@ function importBody(message, mapping, contactId, attachments = []) {
   if (!body && message.type === 'contact' && meta.contacts) body = JSON.stringify(meta.contacts);
   if (!body && message.type === 'reaction' && meta.reaction) body = `${meta.reaction.emoji || 'Reaction removed'} (reply to ${meta.reaction.message_id || ''})`;
   if (!body && !attachments.length) throw error('GHL_MESSAGE_CONTENT_UNAVAILABLE');
-  return { type: 'SMS', contactId, conversationProviderId: mapping.conversation_provider_id, message: body,
+  return { type: 'Custom', contactId, conversationProviderId: mapping.conversation_provider_id, message: body,
     direction: message.direction, date: new Date(message.occurred_at).toISOString(),
     altId: `wa:${mapping.id}:${message.id}`, ...(attachments.length ? { attachments } : {}) };
 }
 
 class GhlMessageSync {
-  constructor({ pool, runtime, env = process.env, fetchImpl = fetch, logger = console }) {
+  constructor({ pool, runtime, env = process.env, fetchImpl = fetch, logger = console, templateSyncService }) {
     Object.assign(this, { pool, runtime, env, fetchImpl, logger });
     this.running = false; this.timer = null; this.archive = new GhlMediaArchive(this);
+    this.templateSyncService = templateSyncService;
   }
-  async request(path, accessToken, body, importing = false) {
+  async syncTemplates(scope) {
+    if (!this.templateSyncService) throw new Error('Template sync service not configured');
+    return this.templateSyncService.sync(scope);
+  }
+  async request(path, accessToken, body, importing = false, version = '2023-02-21') {
     let response;
     try {
       response = await this.fetchImpl(`${this.runtime.client.config.apiUrl}${path}`, {
-        method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, Version: '2023-02-21', Accept: 'application/json', ...(body instanceof FormData ? {} : { 'Content-Type': 'application/json' }) },
+        method: 'POST', headers: { Authorization: `Bearer ${accessToken}`, Version: version, Accept: 'application/json', ...(body instanceof FormData ? {} : { 'Content-Type': 'application/json' }) },
         body: body instanceof FormData ? body : JSON.stringify(body), signal: AbortSignal.timeout(20000),
       });
     } catch { throw error('GHL_SYNC_NETWORK_ERROR', importing); }
@@ -112,7 +118,7 @@ class GhlMessageSync {
   stop() { clearInterval(this.timer); this.timer = null; }
 }
 
-function createSyncRouter({ service, store }) {
+function createSyncRouter({ service, store, templateSyncService }) {
   const router = express.Router();
   router.get('/', async(req,res)=>{
     const user = req.session?.userId && store.findUser(req.session.userId);

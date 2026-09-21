@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "key": "tenx_wa_send_message",
+  "templateId": "01M3199GGVV1Q10VNTAQ6PZJHQ",
+  "versions": [
+    {
+      "version": "1.0",
+      "status": "draft",
+      "info": {
+        "name": "10x WA — Send Message",
+        "description": "Send a WhatsApp text reply within an eligible conversation window.",
+        "summary": "Send a WhatsApp text reply within an eligible conversation window. Uses connected numbers, consent and suppression checks."
+      },
+      "inputs": [
+        {
+          "field": "DYNAMIC",
+          "title": "WhatsApp settings",
+          "required": false,
+          "fieldType": "DYNAMIC",
+          "dynamicFieldsConfig": {
+            "url": "https://wa.10xcollab.com/webhooks/ghl/workflow-fields",
+            "headers": {
+              "x-tenx-workflow-key": "${remote}"
+            }
+          }
+        },
+        {
+          "field": "recipient_phone",
+          "title": "Recipient Phone",
+          "required": true,
+          "fieldType": "string",
+          "validations": [],
+          "value": "{{contact.phone}}",
+          "altersDynamicField": false,
+          "allowCustomInputPicker": true
+        },
+        {
+          "field": "request_id",
+          "title": "Request ID",
+          "required": true,
+          "fieldType": "string",
+          "helpText": "Unique business event + step ID. Keep unchanged on retries; change for a new intended send.",
+          "allowCustomInputPicker": true
+        },
+        {
+          "field": "dry_run",
+          "title": "Dry Run",
+          "required": false,
+          "fieldType": "toggle",
+          "helpText": "Validate contact and sender without sending.",
+          "value": "true",
+          "allowCustomInputPicker": true
+        },
+        {
+          "field": "message",
+          "title": "Message",
+          "required": true,
+          "fieldType": "textarea",
+          "allowCustomInputPicker": true
+        }
+      ],
+      "customVars": [
+        {
+          "name": "Success",
+          "reference": "success",
+          "fieldType": "boolean"
+        },
+        {
+          "name": "Status",
+          "reference": "status",
+          "fieldType": "string"
+        },
+        {
+          "name": "Message ID",
+          "reference": "message_id",
+          "fieldType": "string"
+        },
+        {
+          "name": "Duplicate",
+          "reference": "duplicate",
+          "fieldType": "boolean"
+        },
+        {
+          "name": "Error Code",
+          "reference": "error_code",
+          "fieldType": "string"
+        }
+      ],
+      "customVarsJson": {
+        "success": true,
+        "status": "validated",
+        "message_id": "example-message-id",
+        "duplicate": false,
+        "error_code": ""
+      },
+      "executionConfig": {
+        "type": "API",
+        "url": "https://wa.10xcollab.com/webhooks/ghl/workflow-action",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/json",
+          "x-tenx-workflow-key": "${remote}"
+        },
+        "pauseExecution": false
+      },
+      "payloadCustomizationType": "default",
+      "customizedPayload": {},
+      "branchesConfig": {}
+    }
+  ]
+}

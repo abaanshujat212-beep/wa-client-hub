@@ -1,0 +1,185 @@
+{
+  "schemaVersion": 1,
+  "appId": "6a4f5223a88da74ae658dba7",
+  "versionId": "6a4f5223a88da74ae658dba7",
+  "baseline": {
+    "app": {
+      "schemaVersion": 1,
+      "appId": "6a4f5223a88da74ae658dba7",
+      "versionId": "6a4f5223a88da74ae658dba7",
+      "createdAt": "2026-07-09T07:47:47.964Z",
+      "version": "draft",
+      "status": "draft",
+      "appType": "standard",
+      "basicInfo": {
+        "name": "10x WA Hub",
+        "tagline": "Multi-number WhatsApp messaging, CRM automation and calling for teams",
+        "companyName": "10x Digital Ventures",
+        "contact": {
+          "name": "",
+          "email": ""
+        },
+        "website": "",
+        "category": "",
+        "subcategory": [
+          "calling",
+          "crm",
+          "workflow automation"
+        ],
+        "businessNiche": [
+          "marketing agency",
+          "consultant"
+        ],
+        "logoUrl": "https://msgsndr-private.storage.googleapis.com/marketplace/apps/6a4f5223a88da74ae658dba7/5891ee93-eece-4b51-828d-a424908eaba1.jpg"
+      },
+      "listing": {
+        "private": false,
+        "userTypes": [
+          "Location"
+        ],
+        "isWhiteLabelFriendly": true,
+        "isAgencyBulkInstallEnabled": true,
+        "searchKeywords": []
+      },
+      "profiles": {
+        "agency": {
+          "description": "<p><strong>10x WA Hub is a multi-number WhatsApp communication, CRM automation, and calling platform built for teams that manage sales, support, customer engagement, and follow-up workflows.</strong></p><p>Connect multiple WhatsApp business numbers to one organized workspace while keeping every conversation routed through the correct number and team.</p><p>The platform helps teams manage WhatsApp messaging, shared inbox conversations, customer assignments, notes, tags, automation workflows, approved message templates, media, message delivery tracking, and calling workflows from a structured CRM environment.</p><p>Each WhatsApp number can be assigned to a specific purpose such as Sales, Support, Orders, or Customer Success, helping teams maintain clear communication without mixing customer conversations across business numbers.</p><p><strong>Key capabilities include:</strong><br />• Multi-number WhatsApp management<br />• Shared team inbox and conversation routing<br />• CRM and workflow automation<br />• Sales and support communication<br />• Messaging templates and media handling<br />• Message status tracking<br />• Team assignments, notes, and tags<br />• Customer communication and calling workflows<br />• Secure workspace-based access and routing</p><p>10x WA Hub is designed for agencies, consultants, sales teams, support teams, and businesses that need a scalable way to manage customer communication across multiple WhatsApp numbers.</p>",
+          "previewImageUrls": [
+            "https://msgsndr-private.storage.googleapis.com/marketplace/apps/6a4f5223a88da74ae658dba7/e00cb1af-e84a-44f6-a9b9-6c3cc3b0f759.png",
+            "https://msgsndr-private.storage.googleapis.com/marketplace/apps/6a4f5223a88da74ae658dba7/7282006b-f03c-4c1e-9c1b-4044ebe25c61.png",
+            "https://msgsndr-private.storage.googleapis.com/marketplace/apps/6a4f5223a88da74ae658dba7/a5e8d55e-a7f0-49b9-b53c-f7032ed7e951.png"
+          ],
+          "previewVideoUrl": ""
+        },
+        "subAccount": {
+          "enabled": false,
+          "description": "",
+          "previewImageUrls": [],
+          "previewVideoUrl": ""
+        }
+      },
+      "oauth": {
+        "allowedScopes": [
+          "chat-widget.readonly",
+          "chat-widget.write",
+          "contacts.readonly",
+          "contacts.write",
+          "conversation-ai.readonly",
+          "conversation-ai.write",
+          "conversations.readonly",
+          "conversations.write",
+          "conversations/message.readonly",
+          "conversations/message.write",
+          "conversations/reports.readonly",
+          "conversations/livechat.write",
+          "locations/customFields.readonly",
+          "locations/customFields.write",
+          "files.readonly",
+          "invoices.readonly",
+          "invoices.write",
+          "invoices/schedule.readonly",
+          "invoices/schedule.write",
+          "invoices/template.readonly",
+          "invoices/template.write",
+          "invoices/estimate.readonly",
+          "invoices/estimate.write",
+          "payments/orders.readonly",
+          "payments/orders.write",
+          "payments/orders.collectPayment",
+          "payments/integration.readonly",
+          "payments/integration.write",
+          "payments/transactions.readonly",
+          "payments/subscriptions.readonly",
+          "payments/coupons.readonly",
+          "payments/coupons.write",
+          "payments/custom-provider.readonly",
+          "payments/custom-provider.write",
+          "phonenumbers.read",
+          "phonenumbers.write",
+          "numberpools.read",
+          "voice-ai-dashboard.readonly",
+          "voice-ai-agents.readonly",
+          "voice-ai-agents.write",
+          "voice-ai-agent-goals.readonly",
+          "voice-ai-agent-goals.write",
+          "workflows.readonly",
+          "emails/builder.write",
+          "emails/builder.readonly",
+          "emails/schedule.readonly",
+          "emails/schedule.write",
+          "emails/templates.readonly",
+          "emails/templates.write",
+          "emails/campaigns.readonly",
+          "emails/campaigns.write",
+          "emails/stats.readonly",
+          "charges.readonly",
+          "charges.write",
+          "marketplace-installer-details.readonly",
+          "marketplace-external-auth-migration.write",
+          "oauth.write",
+          "oauth.readonly",
+          "twilioaccount.read",
+          "users.readonly",
+          "medias.readonly",
+          "medias.write"
+        ],
+        "redirectUris": [
+          "https://wa.10xcollab.com/oauth/crm/callback"
+        ],
+        "defaults": {
+          "clientKey": null,
+          "redirectUrl": null
+        },
+        "clientKeys": [
+          {
+            "id": "6a4f5223a88da74ae658dba7-mtyc7qx6",
+            "name": "WA Client Hub",
+            "isDefault": false
+          }
+        ]
+      },
+      "supportConfig": {
+        "supportEmail": "support@10xdigitalventures.com",
+        "supportPhone": "+923202900295",
+        "websiteUrl": "",
+        "documentationUrl": "",
+        "termsAndConditionsUrl": "",
+        "privacyPolicyUrl": "",
+        "supportedServices": []
+      },
+      "billing": {
+        "billingType": "free",
+        "isPaidApp": false,
+        "isFreemium": false,
+        "externalBilling": false,
+        "externalBillingUrl": "",
+        "hasFreeTrial": false,
+        "freeTrialDuration": null,
+        "hasUsageBasedPrice": false,
+        "paymentType": "",
+        "oneTimePrice": null,
+        "additionalInfoForBilling": ""
+      },
+      "review": {
+        "endToEndDemoUrl": "",
+        "scopesDemoUrl": "",
+        "additionalDetails": "",
+        "privateReason": ""
+      }
+    },
+    "webhooks": {
+      "schemaVersion": 1,
+      "appId": "6a4f5223a88da74ae658dba7",
+      "versionId": "6a4f5223a88da74ae658dba7",
+      "webhookUrl": "https://wa.10xcollab.com/webhooks/ghl/events",
+      "subscribedEvents": [
+        {
+          "name": "ConversationUpdate"
+        },
+        {
+          "name": "ConversationUnreadUpdate"
+        }
+      ]
+    }
+  }
+}

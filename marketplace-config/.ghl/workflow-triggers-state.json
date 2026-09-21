@@ -1,0 +1,232 @@
+{
+  "schemaVersion": 1,
+  "appId": "6a4f5223a88da74ae658dba7",
+  "baseline": {
+    "schemaVersion": 1,
+    "appId": "6a4f5223a88da74ae658dba7",
+    "triggers": [
+      {
+        "templateId": "01M31A1SZJAQJ01BSBN4CBNS6Z",
+        "key": "tenx_wa_message_received",
+        "versions": [
+          {
+            "version": "1.0",
+            "status": "published",
+            "info": {
+              "name": "10x WA — Message Received",
+              "description": "Start a workflow when a new WhatsApp message is received.",
+              "summary": "Start a workflow when a new WhatsApp message is received. Uses mapped contacts and connected numbers. Historical inbox imports do not start workflows."
+            },
+            "filters": [
+              {
+                "field": "from_number",
+                "title": "WhatsApp Number",
+                "required": false,
+                "fieldType": "string"
+              }
+            ],
+            "customVars": [
+              {
+                "name": "event id",
+                "reference": "event_id",
+                "fieldType": "string"
+              },
+              {
+                "name": "contactId",
+                "reference": "contactId",
+                "fieldType": "string"
+              },
+              {
+                "name": "locationId",
+                "reference": "locationId",
+                "fieldType": "string"
+              },
+              {
+                "name": "phone",
+                "reference": "phone",
+                "fieldType": "string"
+              },
+              {
+                "name": "from number",
+                "reference": "from_number",
+                "fieldType": "string"
+              },
+              {
+                "name": "message id",
+                "reference": "message_id",
+                "fieldType": "string"
+              },
+              {
+                "name": "message",
+                "reference": "message",
+                "fieldType": "string"
+              },
+              {
+                "name": "message type",
+                "reference": "message_type",
+                "fieldType": "string"
+              },
+              {
+                "name": "direction",
+                "reference": "direction",
+                "fieldType": "string"
+              },
+              {
+                "name": "status",
+                "reference": "status",
+                "fieldType": "string"
+              },
+              {
+                "name": "occurred at",
+                "reference": "occurred_at",
+                "fieldType": "string"
+              }
+            ],
+            "customVarsJson": {
+              "event_id": "wa-event:123",
+              "contactId": "example-contact",
+              "locationId": "example-location",
+              "phone": "+923001234567",
+              "from_number": "+15551972307",
+              "message_id": "example-message",
+              "message": "Hello",
+              "message_type": "text",
+              "direction": "inbound",
+              "status": "received",
+              "occurred_at": "2026-09-21T10:00:00.000Z"
+            },
+            "subscriptionConfig": {
+              "url": "https://wa.10xcollab.com/webhooks/ghl/workflow-subscription",
+              "headers": {
+                "x-tenx-workflow-key": "${remote}"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "templateId": "01M31A1VCCT5T7Y489NBFCHQNJ",
+        "key": "tenx_wa_message_status_updated",
+        "versions": [
+          {
+            "version": "1.0",
+            "status": "published",
+            "info": {
+              "name": "10x WA — Message Status Updated",
+              "description": "Start a workflow when an outgoing WhatsApp message status changes.",
+              "summary": "Start a workflow when an outgoing WhatsApp message status changes. Uses mapped contacts and connected numbers. Historical inbox imports do not start workflows."
+            },
+            "filters": [
+              {
+                "field": "from_number",
+                "title": "WhatsApp Number",
+                "required": false,
+                "fieldType": "string"
+              },
+              {
+                "field": "status",
+                "title": "Message Status",
+                "required": true,
+                "fieldType": "select",
+                "options": [
+                  {
+                    "label": "sent",
+                    "value": "sent"
+                  },
+                  {
+                    "label": "delivered",
+                    "value": "delivered"
+                  },
+                  {
+                    "label": "read",
+                    "value": "read"
+                  },
+                  {
+                    "label": "failed",
+                    "value": "failed"
+                  }
+                ]
+              }
+            ],
+            "customVars": [
+              {
+                "name": "event id",
+                "reference": "event_id",
+                "fieldType": "string"
+              },
+              {
+                "name": "contactId",
+                "reference": "contactId",
+                "fieldType": "string"
+              },
+              {
+                "name": "locationId",
+                "reference": "locationId",
+                "fieldType": "string"
+              },
+              {
+                "name": "phone",
+                "reference": "phone",
+                "fieldType": "string"
+              },
+              {
+                "name": "from number",
+                "reference": "from_number",
+                "fieldType": "string"
+              },
+              {
+                "name": "message id",
+                "reference": "message_id",
+                "fieldType": "string"
+              },
+              {
+                "name": "message",
+                "reference": "message",
+                "fieldType": "string"
+              },
+              {
+                "name": "message type",
+                "reference": "message_type",
+                "fieldType": "string"
+              },
+              {
+                "name": "direction",
+                "reference": "direction",
+                "fieldType": "string"
+              },
+              {
+                "name": "status",
+                "reference": "status",
+                "fieldType": "string"
+              },
+              {
+                "name": "occurred at",
+                "reference": "occurred_at",
+                "fieldType": "string"
+              }
+            ],
+            "customVarsJson": {
+              "event_id": "wa-event:123",
+              "contactId": "example-contact",
+              "locationId": "example-location",
+              "phone": "+923001234567",
+              "from_number": "+15551972307",
+              "message_id": "example-message",
+              "message": "Hello",
+              "message_type": "text",
+              "direction": "outbound",
+              "status": "delivered",
+              "occurred_at": "2026-09-21T10:00:00.000Z"
+            },
+            "subscriptionConfig": {
+              "url": "https://wa.10xcollab.com/webhooks/ghl/workflow-subscription",
+              "headers": {
+                "x-tenx-workflow-key": "${remote}"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

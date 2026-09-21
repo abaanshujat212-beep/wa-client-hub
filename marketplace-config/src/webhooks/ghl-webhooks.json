@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "appId": "6a4f5223a88da74ae658dba7",
+  "versionId": "6a4f5223a88da74ae658dba7",
+  "webhookUrl": "https://wa.10xcollab.com/webhooks/ghl/events",
+  "subscribedEvents": [
+    {
+      "name": "ConversationUpdate"
+    },
+    {
+      "name": "ConversationUnreadUpdate"
+    }
+  ]
+}

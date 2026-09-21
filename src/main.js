@@ -19,6 +19,25 @@ const ycloudEnabled = String(process.env.YCLOUD_ENABLED || 'false').toLowerCase(
 serverModule.app.get('/api/features', (req, res) => { const user = req.session?.userId && serverModule.store.findUser(req.session.userId); if (!user || !user.active) return res.status(401).json({ error: 'Please sign in' }); res.json({ openwaEnabled: openWaEnabled, metaSignupEnabled: metaSignupEnabled, ycloudEnabled: ycloudEnabled }); });
 
 const ghl = createGhlAutoProvisioningRuntime({ env: process.env, store: serverModule.store });
+if (ghl.enabled) {
+  const { createWorkflowActions, locationToken } = require('./providers/ghlWorkflowActions');
+  const workflow = createWorkflowActions({ pool: serverModule.store.repository.pool, ghl });
+  prependExactRouter(serverModule.app, '/webhooks/ghl/workflow-action', workflow.router);
+  prependExactRouter(serverModule.app, '/webhooks/ghl/workflow-fields', workflow.fieldsRouter);
+  serverModule.app.get('/api/ghl/workflow-config', async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const user = req.session?.userId && serverModule.store.findUser(req.session.userId);
+    if (!user?.active || user.role !== 'admin') return res.status(403).json({ error: 'Administrator access required' });
+    try {
+      const locationId = String(req.query.locationId || '');
+      const row = (await serverModule.store.repository.pool.query("SELECT 1 FROM ghl_installations WHERE location_id=$1 AND status='active'", [locationId])).rows[0];
+      if (!row) return res.status(404).json({ error: 'Installed location not found' });
+      res.json({ url: `${appOrigin}/webhooks/ghl/workflow-action`, header: 'x-tenx-workflow-key', value: locationToken(locationId), locationId });
+    } catch { res.status(503).json({ error: 'Workflow configuration unavailable' }); }
+  });
+}
+const ghlTriggers = ghl.enabled ? require('./providers/ghlWorkflowTriggers').createWorkflowTriggers({pool:serverModule.store.repository.pool}) : null;
+if (ghlTriggers) prependExactRouter(serverModule.app, '/webhooks/ghl/workflow-subscription', ghlTriggers.router);
 const ghlSync = ghl.enabled ? new GhlMessageSync({pool:serverModule.store.repository.pool,runtime:ghl}) : null;
 const ghlInbound = null;
 const inbound = null;
@@ -84,8 +103,8 @@ serverModule.app.use((error, req, res, next) => { if (!req.path.startsWith('/api
 serverModule.app.use('/api', (_req, res) => res.status(404).json({ error: 'Feature is not enabled' }));
 
 async function runMain() {
-  const server = await serverModule.start(); metaSignup.start(); metaWebhook.start(); ycloudWebhook.start(); ghlSync?.start(); let closing = false;
-  const shutdown = async () => { if (closing) return; closing = true; metaSignup.stop(); metaWebhook.stop(); ycloudWebhook.stop(); ghlSync?.stop(); await new Promise(resolve => server.close(resolve)); await serverModule.dependencies.close(); if (typeof serverModule.store.close === 'function') await serverModule.store.close(); process.exit(0); };
+  const server = await serverModule.start(); metaSignup.start(); metaWebhook.start(); ycloudWebhook.start(); ghlSync?.start(); ghlTriggers?.start(); let closing = false;
+  const shutdown = async () => { if (closing) return; closing = true; metaSignup.stop(); metaWebhook.stop(); ycloudWebhook.stop(); ghlSync?.stop(); ghlTriggers?.stop(); await new Promise(resolve => server.close(resolve)); await serverModule.dependencies.close(); if (typeof serverModule.store.close === 'function') await serverModule.store.close(); process.exit(0); };
   process.once('SIGINT', shutdown); process.once('SIGTERM', shutdown); return server;
 }
 if (require.main === module) runMain().catch(error => { console.error(error.message); process.exit(1); });

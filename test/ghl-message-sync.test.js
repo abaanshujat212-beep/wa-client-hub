@@ -3,7 +3,7 @@ const {GhlMessageSync,importBody}=require('../src/providers/ghlMessageSync');
 const mapping={id:'map',location_id:'location',conversation_provider_id:'provider',workspace_id:'workspace',whatsapp_number_id:'number',installation_row_id:'installation'};
 const message={id:'message',conversation_id:'conversation',phone_e164:'+923001234567',body:'hello',direction:'inbound',type:'text',occurred_at:'2026-09-01T12:00:00Z'};
 test('history import preserves direction, timestamp and stable identity without using send endpoint',()=>{
- for(const direction of ['inbound','outbound']){const body=importBody({...message,direction},mapping,'contact');assert.equal(body.direction,direction);assert.equal(body.date,'2026-09-01T12:00:00.000Z');assert.equal(body.altId,'wa:map:message');assert.equal(body.contactId,'contact');}
+ for(const direction of ['inbound','outbound']){const body=importBody({...message,direction},mapping,'contact');assert.equal(body.type,'Custom');assert.equal(body.direction,direction);assert.equal(body.date,'2026-09-01T12:00:00.000Z');assert.equal(body.altId,'wa:map:message');assert.equal(body.contactId,'contact');}
 });
 test('media-only messages retain attachments; empty unsupported messages do not silently sync',()=>{
  assert.deepEqual(importBody({...message,body:'',type:'image'},mapping,'contact',['https://files.test/photo.png']).attachments,['https://files.test/photo.png']);
@@ -24,3 +24,5 @@ test('ambiguous import timeout is flagged for reconciliation, not blind retry',a
  const service=new GhlMessageSync({runtime:{client:{config:{apiUrl:'https://ghl.test'}}},fetchImpl:async()=>{throw Error('timeout')}});
  await assert.rejects(service.request('/conversations/messages/inbound','token',{},true),e=>e.uncertain===true);
 });
+
+test('sync router constructs without unrelated template handlers',()=>{require('../src/providers/ghlMessageSync').createSyncRouter({service:{},store:{}});});

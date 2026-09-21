@@ -69,6 +69,8 @@ class MetaGraphClient {
         try { payload = await response.json(); } catch {}
         if (response.ok) return payload;
         const error = classify(response.status);
+        if (Number.isSafeInteger(payload?.error?.code)) { error.code = `META_ERROR_${payload.error.code}`; error.message = `Meta rejected the request (${payload.error.code})`; }
+        if (Number(payload?.error?.code) === 133010) error.code = 'META_ACCOUNT_NOT_REGISTERED';
         if (!error.retryable || attempt >= this.maxRetries) throw error;
       } catch (error) {
         const safe = error instanceof MetaGraphError ? error : new MetaGraphError(error?.name === 'AbortError' ? 'META_TIMEOUT' : 'META_NETWORK_ERROR', { retryable: true });

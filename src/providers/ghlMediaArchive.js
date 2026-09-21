@@ -35,7 +35,7 @@ class GhlMediaArchive {
         const form = new FormData();
         form.set('parentId', folder.folder_id); form.set('name', `${id}-${filename}`);
         form.set('file', new Blob([file.bytes], { type: file.contentType }), `${id}-${filename}`);
-        const uploaded = await this.sync.request('/medias/upload-file', token, form, true);
+        const uploaded = await this.sync.request('/medias/upload-file', token, form, true, '2021-07-28');
         if (!uploaded.fileId || typeof uploaded.url !== 'string' || !uploaded.url.startsWith('https://')) throw fail('GHL_MEDIA_UPLOAD_INVALID');
         await db.query("UPDATE ghl_media_archive SET file_id=$2,url=$3,state='ready',expires_at=now()+interval '3 months',updated_at=now() WHERE id=$1", [id,uploaded.fileId,uploaded.url]);
         return uploaded.url;
@@ -54,7 +54,7 @@ class GhlMediaArchive {
       try {
         const access = await this.sync.runtime.repository.getAccessToken({ installationId: row.installation_id, locationId: row.location_id, refresh: value => this.sync.runtime.client.refreshToken(value) });
         const query = new URLSearchParams({ altId: row.location_id, altType: 'location' });
-        const response = await this.sync.fetchImpl(`${this.sync.runtime.client.config.apiUrl}/medias/${encodeURIComponent(row.file_id)}?${query}`, { method: 'DELETE', headers: { Authorization: `Bearer ${access.accessToken}`, Version: '2023-02-21' }, signal: AbortSignal.timeout(20000) });
+        const response = await this.sync.fetchImpl(`${this.sync.runtime.client.config.apiUrl}/medias/${encodeURIComponent(row.file_id)}?${query}`, { method: 'DELETE', headers: { Authorization: `Bearer ${access.accessToken}`, Version: '2021-07-28' }, signal: AbortSignal.timeout(20000) });
         if (!response.ok && response.status !== 404) throw fail('GHL_MEDIA_EXPIRY_FAILED');
         await this.sync.pool.query("UPDATE ghl_media_archive SET state='expired',url=NULL,updated_at=now() WHERE id=$1", [row.id]);
       } catch { this.sync.logger.error?.('GHL media retention needs attention', { archiveId: row.id }); }
