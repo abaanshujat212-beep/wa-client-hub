@@ -4,14 +4,14 @@ class MetaDiagnosticsError extends Error {
   constructor(message, code) { super(message); this.name = 'MetaDiagnosticsError'; this.code = code; }
 }
 class MetaConnectionDiagnosticsService {
-  constructor({ repository, graphVersion, fetchImpl = globalThis.fetch, baseUrl = 'https://graph.facebook.com' }) {
+  constructor({ repository, graphVersion, appId, fetchImpl = globalThis.fetch, baseUrl = 'https://graph.facebook.com' }) {
     if (!repository || typeof fetchImpl !== 'function' || !/^v\d+\.\d+$/.test(String(graphVersion || ''))) throw new TypeError('Diagnostics repository, fetch and Graph version are required');
-    this.repository = repository; this.graphVersion = graphVersion; this.fetch = fetchImpl; this.baseUrl = String(baseUrl).replace(/\/$/, '');
+    this.appId = appId ? String(appId) : null; this.repository = repository; this.graphVersion = graphVersion; this.fetch = fetchImpl; this.baseUrl = String(baseUrl).replace(/\/$/, '');
   }
   async request(path, accessToken) {
-    const response = await this.fetch(`${this.baseUrl}/${this.graphVersion}/${path}`, { headers: { authorization: `Bearer ${accessToken}` } });
+    const response = await this.fetch(`${this.baseUrl}/${this.graphVersion}/${path}`, { headers: { authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(10000) });
     let payload = null; try { payload = await response.json(); } catch {}
-    if (!response.ok) throw new MetaDiagnosticsError('Meta diagnostics request failed', response.status === 401 || response.status === 403 ? 'META_DIAGNOSTICS_AUTH_FAILED' : 'META_DIAGNOSTICS_UNAVAILABLE');
+    if (!response.ok) throw new MetaDiagnosticsError('Meta diagnostics request failed', Number(payload?.error?.code) === 190 || response.status === 401 || response.status === 403 ? 'META_DIAGNOSTICS_AUTH_FAILED' : 'META_DIAGNOSTICS_UNAVAILABLE');
     return payload || {};
   }
   async run(scope) {
@@ -22,7 +22,7 @@ class MetaConnectionDiagnosticsService {
       const phone = await this.request(`${target.phoneNumberId}?fields=${fields}`, target.accessToken);
       if (String(phone.id) !== target.phoneNumberId) throw new MetaDiagnosticsError('Meta asset verification failed', 'META_DIAGNOSTICS_ASSET_MISMATCH');
       const subscriptions = await this.request(`${target.wabaId}/subscribed_apps?limit=100`, target.accessToken);
-      const webhookSubscribed = Array.isArray(subscriptions.data) && subscriptions.data.length > 0;
+      const webhookSubscribed = Array.isArray(subscriptions.data) && subscriptions.data.some(app => !this.appId || String(app.whatsapp_business_api_data?.id || app.id) === this.appId);
       let callingReadiness;
       try {
         const settings = await this.request(`${target.phoneNumberId}/settings`, target.accessToken);

@@ -64,6 +64,16 @@ class MetaConnectionLifecycleRepository {
       WHERE u.id=$1 AND p.id=$3 AND p.provider='whatsapp_cloud' AND ${managerPredicate}`, [actorId, workspaceId, connectionId]);
     return safeRow(result.rows[0]);
   }
+  async enableMessaging({ actorId, workspaceId, connectionId }) {
+    const result = await this.pool.query(`UPDATE whatsapp_numbers n SET automation_enabled=true
+      FROM provider_connections p JOIN meta_connection_assets a ON a.provider_connection_id=p.id AND a.workspace_id=p.workspace_id, users u
+      WHERE u.id=$1 AND p.id=$3 AND p.workspace_id=$2 AND p.provider='whatsapp_cloud' AND p.status='active'
+      AND a.token_status='valid' AND a.webhook_subscribed=true AND a.disconnected_at IS NULL
+      AND a.last_diagnostics_at>clock_timestamp()-interval '15 minutes'
+      AND n.provider_connection_id=p.id AND n.workspace_id=p.workspace_id AND ${managerPredicate} RETURNING n.id`, [actorId, workspaceId, connectionId]);
+    if (!result.rowCount) throw new MetaLifecycleError('Run checks and activate before enabling messaging', 'META_ACTIVATION_NOT_READY');
+    return { id: connectionId, workspaceId, automationEnabled: true };
+  }
   async activate({ actorId, workspaceId, connectionId }) {
     const client = await this.pool.connect();
     try {

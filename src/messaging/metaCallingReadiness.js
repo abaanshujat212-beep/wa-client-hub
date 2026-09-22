@@ -91,7 +91,7 @@ function normalizeCallingReadiness({ settings, subscriptions }) {
   if (result.callingEnabled !== 'ready') result.blockingReasons.push(result.callingEnabled === 'blocked' ? 'CALLING_NOT_ENABLED' : 'CALLING_SETTINGS_UNVERIFIED');
   if (result.inboundCallingEnabled === 'blocked') result.blockingReasons.push('INBOUND_CALLING_NOT_ENABLED');
   if (result.inboundCallingEnabled === 'unknown') result.blockingReasons.push('INBOUND_CALLING_UNVERIFIED');
-  if (result.callingEnabled === 'ready' && result.callsWebhookSubscribed === 'ready' && result.inboundCallingEnabled !== 'blocked') result.canReceiveCalls = true;
+  if (result.callingEnabled === 'ready' && result.callsWebhookSubscribed === 'ready' && result.inboundCallingEnabled === 'ready') result.canReceiveCalls = true;
 
   // A connection-level diagnostic cannot prove permission for a specific WhatsApp user.
   result.blockingReasons.push('CALL_PERMISSION_NOT_CHECKED');

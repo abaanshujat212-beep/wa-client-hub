@@ -11,6 +11,7 @@ function validScope(body) {
 
 function mapError(error) {
   const code = String(error?.code || '');
+  if (code === 'META_ERROR_190') return { status: 409, body: { error: 'The Meta access token has expired or is invalid. Update the connection token and sync again.', code } };
   if (code === 'META_CONNECTION_NOT_FOUND') return { status: 404, body: { error: 'Meta connection or number not found', code } };
   if (code === 'META_TEMPLATE_BINDING_CHANGED') return { status: 409, body: { error: 'Meta template target changed; retry the synchronization', code } };
   if (code === 'META_CREDENTIALS_UNAVAILABLE') return { status: 409, body: { error: 'Meta credentials are unavailable', code } };

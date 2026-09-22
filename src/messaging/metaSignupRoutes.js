@@ -1,4 +1,5 @@
 const crypto = require('node:crypto');
+const { MetaCredentialConnect } = require('./metaCredentialConnect');
 const { NumberCreationPolicy } = require('../db/numberCreationPolicy');
 const { MetaSignupStateRepository } = require('./metaSignupStateRepository');
 const { MetaConnectionRepository } = require('./metaConnectionRepository');
@@ -33,7 +34,7 @@ function validateOrigin(origin) {
 function validPublicConfig(value) {
   return value && /^\d{1,64}$/.test(value.appId) && /^\d{1,64}$/.test(value.configId) && /^v\d+\.\d+$/.test(value.graphVersion);
 }
-function createMetaSignupRouter({ enabled = false, pool, signupService, vault, origin, publicConfig } = {}) {
+function createMetaSignupRouter({ enabled = false, pool, signupService, vault, origin, publicConfig, graphClient } = {}) {
   const express = require('express');
   const router = express.Router();
   router.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
@@ -72,6 +73,19 @@ function createMetaSignupRouter({ enabled = false, pool, signupService, vault, o
     if (Buffer.byteLength(JSON.stringify(req.body || {})) > 16384) return res.status(413).json({ error: 'Signup request is too large' });
     if (!validBody(action, req.body)) return res.status(400).json({ error: 'Valid signup details are required' });
     return handlers[action](req, res, next);
+  });
+  const credentialConnect = new MetaCredentialConnect({ authorization, repository: new MetaConnectionRepository(pool, vault), graphClient, graphVersion: publicConfig?.graphVersion });
+  router.post('/credentials', guard('complete'), express.json({ limit: '8kb', strict: true }), async (req, res) => {
+    try { res.status(201).json(await credentialConnect.connect(req.user, req.body)); }
+    catch (error) {
+      if (error.status === 400 || error.status === 404) return res.status(error.status).json({ error: error.message });
+      if (['NUMBER_LIMIT_REACHED','BILLING_RESOURCE_BLOCKED','WORKSPACE_INACTIVE','NUMBER_ALREADY_EXISTS'].includes(error.code)) return res.status(409).json({ error: error.message });
+      if (error.code === 'WORKSPACE_NOT_FOUND') return res.status(404).json({ error: 'Workspace not found' });
+      if (error.code === 'META_PHONE_ALREADY_CONNECTED') return res.status(409).json({ error: 'This number is already connected. Select its existing workspace.' });
+      if (error.code === 'META_ERROR_190') return res.status(400).json({ error: 'The access token has expired or is invalid. Generate a new token in Meta.' });
+      if (error.code?.startsWith('META_ERROR_') || error.providerStatus === 403) return res.status(400).json({ error: 'Meta could not authorize these assets. Check the IDs and token permissions.' });
+      return res.status(503).json({ error: 'Connection could not be saved. Refresh connection status before retrying.' });
+    }
   });
   router.post('/cancel', guard('cancel'), express.json({ limit: '2kb', strict: true }), async (req, res) => {
     if (!validBody('cancel', req.body)) return res.status(400).json({ error: 'Valid signup state is required' });

@@ -10,7 +10,8 @@ function lifecycleError(error) {
   const code = String(error?.code || '');
   if (code === 'META_CONNECTION_NOT_FOUND') return { status: 404, body: { error: 'Meta connection not found', code } };
   if (code === 'META_ACTIVATION_NOT_READY') return { status: 409, body: { error: 'Meta connection is not ready for activation', code } };
-  if (code === 'META_DIAGNOSTICS_AUTH_FAILED' || code === 'META_DIAGNOSTICS_ASSET_MISMATCH') return { status: 502, body: { error: 'Meta diagnostics failed', code } };
+  if (code === 'META_DIAGNOSTICS_AUTH_FAILED') return { status: 409, body: { error: 'The Meta access token has expired or cannot access this number. Update the connection token.', code } };
+  if (code === 'META_DIAGNOSTICS_ASSET_MISMATCH') return { status: 502, body: { error: 'Meta diagnostics failed', code } };
   if (code === 'META_CREDENTIALS_UNAVAILABLE') return { status: 409, body: { error: 'Meta credentials are unavailable', code } };
   return { status: 503, body: { error: 'Meta connection is temporarily unavailable', code: 'META_CONNECTION_UNAVAILABLE' } };
 }
@@ -41,6 +42,11 @@ function createMetaConnectionRouter({ enabled = false, pool, repository, diagnos
   router.post('/:connectionId/diagnostics', writeGuard, express.json({ limit: '2kb', strict: true }), async (req, res) => {
     if (!validScope(req.body) || !/^[0-9a-f-]{36}$/i.test(req.params.connectionId)) return res.status(400).json({ error: 'Valid connection scope is required' });
     try { res.json(await diagnostics.run({ actorId: req.user.id, workspaceId: req.body.workspaceId, connectionId: req.params.connectionId })); }
+    catch (error) { const mapped = lifecycleError(error); res.status(mapped.status).json(mapped.body); }
+  });
+  router.post('/:connectionId/enable-messaging', writeGuard, express.json({ limit: '2kb', strict: true }), async (req, res) => {
+    if (!validScope(req.body) || !/^[0-9a-f-]{36}$/i.test(req.params.connectionId)) return res.status(400).json({ error: 'Valid connection scope is required' });
+    try { res.json(await repository.enableMessaging({ actorId: req.user.id, workspaceId: req.body.workspaceId, connectionId: req.params.connectionId })); }
     catch (error) { const mapped = lifecycleError(error); res.status(mapped.status).json(mapped.body); }
   });
   router.post('/:connectionId/activate', writeGuard, express.json({ limit: '2kb', strict: true }), async (req, res) => {

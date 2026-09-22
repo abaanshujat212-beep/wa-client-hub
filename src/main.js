@@ -51,11 +51,12 @@ const metaSignup = createMetaSignupRuntime({ env: process.env, store: serverModu
 serverModule.app.use('/api/meta/signup', metaSignup.router);
 serverModule.app.use('/api/meta/connections/:connectionId/templates', metaSignup.templatesRouter);
 serverModule.app.use('/api/meta/connections/:connectionId/media', metaSignup.mediaRouter);
+const metaCalling = createMetaCallingRouter({ enabled: metaCallingEnabled(process.env), env: process.env, store: serverModule.store, origin: appOrigin });
+serverModule.app.use('/api/meta/connections/:connectionId/calling', metaCalling);
 serverModule.app.use('/api/meta/connections', metaSignup.connectionsRouter);
 const metaLifecycle = createMetaLifecycleRouter({ enabled: serverModule.store.driver === 'postgres', pool: serverModule.store.repository.pool, appSecret: process.env.META_APP_SECRET, publicOrigin: appOrigin || 'https://wa.10xcollab.com' });
 serverModule.app.use('/meta', metaLifecycle);
-const metaCalling = createMetaCallingRouter({ enabled: metaCallingEnabled(process.env), env: process.env, store: serverModule.store, origin: appOrigin });
-serverModule.app.use('/api/meta/connections', metaCalling);
+
 if (serverModule.store.driver === 'postgres' && ghl.marketplaceInstallRouter) prependExactRouter(serverModule.app, '/webhooks/ghl/install', ghl.marketplaceInstallRouter);
 prependExactRouter(serverModule.app, '/webhooks/ghl/events', ghl.eventsRouter);
 prependExactRouter(serverModule.app, '/webhooks/ghl/messages', ghl.messagesRouter);
