@@ -28,6 +28,7 @@
         const card=document.createElement('article');card.className='connection-card';
         const title=document.createElement('strong');title.textContent=c.label+(c.number?' Â· '+c.number.phone:'');card.appendChild(title);
         const status=document.createElement('p');status.textContent='Connection: '+c.status+' Â· Messaging: '+(c.number?.automationEnabled?'enabled':'not enabled');card.appendChild(status);
+        if(c.coexistence){const sync=document.createElement('p');sync.textContent='Business app connected. Keep it open during synchronization. '+(c.syncJobs||[]).map(j=>j.step+': '+j.state).join(' · ')+(c.historySharing?' · History: '+c.historySharing:'');card.appendChild(sync);}
         const actions=document.createElement('div');actions.className='row-actions';card.appendChild(actions);
         const base='/api/meta/connections/'+encodeURIComponent(c.id), scope={workspaceId:selected};
         actions.appendChild(button('Check & activate',async()=>{

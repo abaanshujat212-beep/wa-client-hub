@@ -20,12 +20,14 @@ function validStateBody(body) {
 function validBody(action, body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
   if (action === 'cancel') return validStateBody(body);
-  const fields = action === 'start' ? ['workspaceId', 'label'] : ['state', 'code', 'businessAccountId', 'phoneNumberId'];
+  const fields = action === 'start' ? ['workspaceId', 'label'] : ['state', 'code', 'businessAccountId', 'phoneNumberId', 'coexistence'];
   if (Object.keys(body).some(key => !fields.includes(key))) return false;
   if (action === 'start') return typeof body.workspaceId === 'string' && body.workspaceId.length > 0 && body.workspaceId.length <= 256 && typeof body.label === 'string' && body.label.trim().length >= 2 && body.label.length <= 200;
   return typeof body.state === 'string' && /^[A-Za-z0-9_-]{43}$/.test(body.state) &&
     typeof body.code === 'string' && body.code.length > 0 && body.code.length <= 4096 &&
-    ['businessAccountId', 'phoneNumberId'].every(key => typeof body[key] === 'string' && /^\d{1,64}$/.test(body[key]));
+    (body.coexistence === undefined || typeof body.coexistence === 'boolean') &&
+    typeof body.businessAccountId === 'string' && /^\d{1,64}$/.test(body.businessAccountId) &&
+    ((body.coexistence === true && body.phoneNumberId == null) || (typeof body.phoneNumberId === 'string' && /^\d{1,64}$/.test(body.phoneNumberId)));
 }
 function validateOrigin(origin) {
   try { const url = new URL(origin); return url.protocol === 'https:' && url.origin === origin && !url.username && !url.password; }
@@ -60,7 +62,7 @@ function createMetaSignupRouter({ enabled = false, pool, signupService, vault, o
   router.get('/config', async (req, res) => {
     if (!await currentActor(req, res)) return;
     if (!validPublicConfig(publicConfig)) return res.status(404).json({ error: 'Not found' });
-    res.json({ appId: publicConfig.appId, configId: publicConfig.configId, graphVersion: publicConfig.graphVersion });
+    res.json({ appId: publicConfig.appId, configId: publicConfig.configId, graphVersion: publicConfig.graphVersion, coexistenceEnabled: publicConfig.coexistenceEnabled === true });
   });
   router.get('/status', async (req, res) => {
     const actor = await currentActor(req, res); if (!actor) return;
@@ -71,6 +73,7 @@ function createMetaSignupRouter({ enabled = false, pool, signupService, vault, o
   });
   for (const action of ['start', 'complete']) router.post(`/${action}`, guard(action), express.json({ limit: '16kb', strict: true }), (req, res, next) => {
     if (Buffer.byteLength(JSON.stringify(req.body || {})) > 16384) return res.status(413).json({ error: 'Signup request is too large' });
+    if (req.body?.coexistence === true && publicConfig?.coexistenceEnabled !== true) return res.status(409).json({ error: 'WhatsApp Business App onboarding is not enabled yet' });
     if (!validBody(action, req.body)) return res.status(400).json({ error: 'Valid signup details are required' });
     return handlers[action](req, res, next);
   });
