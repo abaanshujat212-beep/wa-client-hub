@@ -1,5 +1,7 @@
 # Calling follow-up and Meta review evidence
 
+Update 23 September 2026: the durable calling backend is implemented; see [calling-backend.md](calling-backend.md) for current endpoints, security and remaining audio integration. The notes below describe the earlier checkpoint.
+
 Status verified on 2026-09-22:
 - Existing Meta test connection token was refreshed and verified; no token is stored in Git.
 - Five approved message templates were synced.

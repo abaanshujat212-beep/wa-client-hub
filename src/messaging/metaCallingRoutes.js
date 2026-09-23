@@ -4,6 +4,8 @@ const { normalizeCallingReadiness } = require('./metaCallingReadiness');
 const { CredentialVault } = require('../security/credentialVault');
 const { MetaGraphClient } = require('./metaGraphClient');
 const { MetaCallingClient, MetaCallingError } = require('./metaCallingClient');
+const { MetaCallService } = require('./metaCallService');
+const { rateLimit } = require('express-rate-limit');
 const { validCsrf, validateOrigin } = require('./metaSignupRoutes');
 
 function enabled(env = process.env) { return env.META_CALLING_ENABLED === 'true'; }
@@ -16,9 +18,14 @@ function createMetaCallingRouter({ enabled: isEnabled = false, env = process.env
   }
   if (!validateOrigin(origin) || store?.driver !== 'postgres' || typeof store?.repository?.pool?.query !== 'function') throw new TypeError('Enabled Meta Calling requires an exact origin and PostgreSQL store');
   const vault = new CredentialVault({ env });
-  const graph = new MetaGraphClient({ graphVersion: env.META_GRAPH_VERSION, fetchImpl });
+  const graph = new MetaGraphClient({ graphVersion: env.META_GRAPH_VERSION, fetchImpl, maxRetries: 0 });
   const calling = new MetaCallingClient({ graphClient: graph, enabled: true });
   const pool = store.repository.pool;
+  const service = new MetaCallService({pool,graph,calling,vault});
+  router.use((_req,res,next)=>{res.set('Cache-Control','no-store');next();});
+  router.use(rateLimit({windowMs:60000,limit:120,standardHeaders:true,legacyHeaders:false}));
+  router.use(express.json({limit:'256kb',strict:true}));
+  router.use((req,res,next)=>{if(req.method==='POST'&&(req.get('origin')!==origin||!validCsrf(req.session?.csrfToken,req.get('x-csrf-token'))))return res.status(403).json({error:'Security token or origin is invalid'});next();});
   const authorization = new NumberCreationPolicy(pool);
 
   async function resolveTarget(req, res) {
@@ -28,16 +35,16 @@ function createMetaCallingRouter({ enabled: isEnabled = false, env = process.env
     const connectionId = String(req.params.connectionId || '').trim();
     if (!workspaceId || !await authorization.canManageWorkspace(user, workspaceId) || !/^[0-9a-f-]{36}$/i.test(connectionId)) { res.status(404).json({ error: 'Meta connection not found' }); return null; }
     const result = await pool.query(`SELECT p.id,p.workspace_id,p.encrypted_credentials,p.encryption_key_id,
-      a.waba_id,a.phone_number_id
+      a.waba_id,a.phone_number_id,n.id AS number_id
       FROM provider_connections p JOIN meta_connection_assets a
-        ON a.provider_connection_id=p.id AND a.workspace_id=p.workspace_id
+        ON a.provider_connection_id=p.id AND a.workspace_id=p.workspace_id JOIN whatsapp_numbers n ON n.provider_connection_id=p.id AND n.workspace_id=p.workspace_id
       WHERE p.id=$1 AND p.workspace_id=$2 AND p.provider='whatsapp_cloud'
         AND (p.status IN ('active','degraded') OR ($3::boolean AND p.status='connecting')) AND a.disconnected_at IS NULL`, [connectionId, workspaceId, req.method === 'GET']);
     const row = result.rows[0];
     if (!row || !row.encrypted_credentials) { res.status(404).json({ error: 'Meta connection not found' }); return null; }
     const credentials = vault.decrypt(row.encrypted_credentials, row.id, row.encryption_key_id);
     if (!credentials.accessToken) { res.status(409).json({ error: 'Meta credentials are unavailable', code: 'META_CREDENTIALS_UNAVAILABLE' }); return null; }
-    return { user, workspaceId, connectionId, phoneNumberId: row.phone_number_id, wabaId: row.waba_id, accessToken: credentials.accessToken };
+    return { user, workspaceId, connectionId, numberId: row.number_id, phoneNumberId: row.phone_number_id, wabaId: row.waba_id, accessToken: credentials.accessToken };
   }
 
   router.get('/readiness', async (req, res) => {
@@ -54,17 +61,20 @@ function createMetaCallingRouter({ enabled: isEnabled = false, env = process.env
     }
   });
 
-  router.post('/action', express.json({ limit: '256kb', strict: true }), async (req, res) => {
-    if (req.get('origin') !== origin || !validCsrf(req.session?.csrfToken, req.get('x-csrf-token'))) return res.status(403).json({ error: 'Security token or origin is invalid' });
-    try {
-      const target = await resolveTarget(req, res); if (!target) return;
-      const result = await calling.action({ ...req.body, phoneNumberId: target.phoneNumberId, accessToken: target.accessToken });
-      return res.status(202).json({ accepted: true, action: String(req.body.action || '').toLowerCase(), phoneNumberId: target.phoneNumberId, result });
-    } catch (error) {
-      if (error instanceof MetaCallingError) return res.status(error.status || 400).json({ error: error.message, code: error.code });
-      return res.status(error?.providerStatus === 401 || error?.providerStatus === 403 ? 502 : 503).json({ error: 'Meta Calling action failed', code: error?.code || 'META_CALLING_ACTION_FAILED' });
-    }
-  });
+  function endpoint(handler) { return async(req,res)=>{try {const target=await resolveTarget(req,res);if(!target)return;await handler(req,res,target);}catch(error){if(error instanceof MetaCallingError)return res.status(error.status||400).json({error:error.message,code:error.code});res.status(503).json({error:'Calling service unavailable',code:'META_CALL_SERVICE_UNAVAILABLE'});}}; }
+  router.get('/permissions',endpoint(async(req,res,target)=>res.json(await service.permissions(target,req.query.recipient))));
+  router.get('/sessions',endpoint(async(req,res,target)=>res.json({sessions:await service.list(target)})));
+  router.get('/sessions/:sessionId',endpoint(async(req,res,target)=>res.json(await service.detail(target,req.params.sessionId))));
+  router.post('/sessions/:sessionId/claim',endpoint(async(req,res,target)=>res.json(await service.claim(target,req.params.sessionId))));
+  router.get('/sessions/:sessionId/signaling',endpoint(async(req,res,target)=>res.json(await service.signaling(target,req.params.sessionId))));
+  router.post('/action',endpoint(async(req,res,target)=>{
+    const result=await service.action(target,req.body,req.get('idempotency-key'));
+    res.status(result.state==='failed'?409:result.state==='uncertain'?202:result.state==='sending'?202:200).json(result);
+  }));
+  router.post('/permissions/request',endpoint(async(req,res,target)=>{
+    const result=await service.action(target,{...req.body,action:'request_permission'},req.get('idempotency-key'));
+    res.status(result.state==='failed'?409:result.state==='accepted'?200:202).json(result);
+  }));
 
   router.use((_req, res) => res.status(404).json({ error: 'Not found' }));
   return router;

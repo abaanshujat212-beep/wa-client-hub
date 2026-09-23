@@ -1,5 +1,7 @@
 # Calling and GHL code-side completion
 
+Update 23 September 2026: the durable calling backend is implemented; see [calling-backend.md](calling-backend.md) for current endpoints, security and remaining audio integration. The notes below describe the earlier checkpoint.
+
 This branch adds the code-side control plane for the private Calling POC.
 
 ## Meta WhatsApp Calling

@@ -7,9 +7,10 @@ function extractMetaEvents(payload) {
   for (const entry of payload.entry) {
     const wabaId = String(entry?.id || ''); if (!/^\d{1,64}$/.test(wabaId) || !Array.isArray(entry.changes)) continue;
     for (const change of entry.changes) {
-      if (!['messages','smb_message_echoes','history','smb_app_state_sync'].includes(change?.field) || !change.value || typeof change.value !== 'object') continue;
+      if (!['messages','smb_message_echoes','history','smb_app_state_sync','calls'].includes(change?.field) || !change.value || typeof change.value !== 'object') continue;
       const value = change.value; const phoneNumberId = String(value.metadata?.phone_number_id || '');
       if (!/^\d{1,64}$/.test(phoneNumberId)) continue;
+      if (change.field === 'calls') { events.push(...require('./metaCallEvents').normalizeCallEvents(value,wabaId,phoneNumberId)); continue; }
       const businessPhone = digits(value.metadata?.display_phone_number);
       if (change.field === 'smb_app_state_sync') {
         for (const item of Array.isArray(value.state_sync) ? value.state_sync : []) {

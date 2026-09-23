@@ -11,7 +11,7 @@ class MetaCallingError extends Error {
 
 function normalizeSdp(value) {
   const sdp = String(value || '');
-  if (!sdp || sdp.length > 200000 || !sdp.includes('v=0')) throw new MetaCallingError('META_SDP_REQUIRED', 'A valid WebRTC SDP value is required', 400);
+  if (!sdp || sdp.length > 200000 || !sdp.startsWith('v=0')) throw new MetaCallingError('META_SDP_REQUIRED', 'A valid WebRTC SDP value is required', 400);
   return sdp;
 }
 
@@ -26,16 +26,17 @@ function buildCallActionBody(input = {}) {
   if (!ACTIONS.has(action)) throw new MetaCallingError('META_CALL_ACTION_INVALID', 'Unsupported Meta Calling action', 400);
   const body = { messaging_product: 'whatsapp', action };
   if (action === 'connect') {
-    const to = String(input.to || '').replace(/\D/g, '');
-    if (!/^\d{8,15}$/.test(to)) throw new MetaCallingError('META_CALL_RECIPIENT_INVALID', 'A valid WhatsApp recipient is required', 400);
+    const to = String(input.to || '').trim().replace(/^\+/, '');
+    if (!/^[1-9]\d{7,14}$/.test(to)) throw new MetaCallingError('META_CALL_RECIPIENT_INVALID', 'A valid WhatsApp recipient is required', 400);
     body.to = to;
-    body.connection = { webrtc: { sdp: normalizeSdp(input.sdp) } };
+    body.session = { sdp_type: action === 'connect' ? 'offer' : 'answer', sdp: normalizeSdp(input.sdp) };
   } else if (action === 'pre_accept' || action === 'accept') {
     body.call_id = normalizeCallId(input.callId);
-    body.connection = { webrtc: { sdp: normalizeSdp(input.sdp) } };
+    body.session = { sdp_type: action === 'connect' ? 'offer' : 'answer', sdp: normalizeSdp(input.sdp) };
   } else {
     body.call_id = normalizeCallId(input.callId);
   }
+  if (input.correlationId) body.biz_opaque_callback_data = String(input.correlationId);
   return body;
 }
 

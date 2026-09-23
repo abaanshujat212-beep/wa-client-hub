@@ -7,7 +7,7 @@ test('builds an audio WebRTC connect action', () => {
     messaging_product: 'whatsapp',
     action: 'connect',
     to: '923001234567',
-    connection: { webrtc: { sdp: 'v=0\r\no=- 1 1 IN IP4 0.0.0.0' } },
+    session: { sdp_type: 'offer', sdp: 'v=0\r\no=- 1 1 IN IP4 0.0.0.0' },
   });
 });
 
