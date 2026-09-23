@@ -45,3 +45,8 @@ Official references:
 - https://developers.facebook.com/documentation/business-messaging/whatsapp/embedded-signup/onboarding-business-app-users
 - https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/smb_message_echoes/
 - https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/smb_app_state_sync/
+
+## Phone-number-first screen (23 September 2026)
+Meta's v4 public preview automatically detects coexistence when the customer enters an existing WhatsApp Business app number under Enter a new phone number. A separate coexistence menu item is not required. Do not select Meta test numbers or delete the mobile account. If Meta reports ineligible, check number eligibility and provider setup.
+Source: https://developers.facebook.com/documentation/business-messaging/whatsapp/embedded-signup/version-4-public-preview/
+Calling now has a frontend dial pad, disabled session controls, device placeholders and an unconnected history state. Only the existing readiness check contacts the backend. Calling, permission requests and microphone capture remain unwired.

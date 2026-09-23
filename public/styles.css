@@ -31,3 +31,13 @@ body:not([data-dashboard-role="admin"]) :is([data-view="connectors"], [data-view
 body:not([data-dashboard-role='admin']) .admin-only{display:none!important}
 
 #metaSignupPanel .inline-form .button{height:auto;min-height:44px;line-height:1.35}#metaSignupPanel .button{white-space:normal}
+
+.calling-console { display:grid; gap:20px; margin-bottom:28px; }
+.calling-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:20px; }
+.calling-grid .integration-card { min-width:0; }
+.calling-keypad { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:16px 0; max-width:360px; }
+.calling-keypad button { min-height:48px; font-size:20px; }
+.calling-actions { display:flex; flex-wrap:wrap; gap:10px; margin:18px 0; }
+.calling-idle { text-align:center; padding:35px 16px; }
+.calling-console button:disabled,.calling-console select:disabled { opacity:.55; cursor:not-allowed; }
+@media(max-width:760px) { .calling-grid { grid-template-columns:1fr; } }
