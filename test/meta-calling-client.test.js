@@ -27,3 +27,5 @@ test('keeps Meta Calling disabled by default', async () => {
   const client = new MetaCallingClient({ graphClient: { request: async () => ({}) } });
   await assert.rejects(() => client.action({ phoneNumberId: '123', accessToken: 'server-token', action: 'terminate', callId: 'call-1' }), error => error.code === 'META_CALLING_DISABLED');
 });
+
+test('hangup does not send tracking fields intended for call setup',()=>{for(const action of ['terminate','reject'])assert.deepEqual(buildCallActionBody({action,callId:'wacid.test',correlationId:'tracking'}),{messaging_product:'whatsapp',action,call_id:'wacid.test'});});

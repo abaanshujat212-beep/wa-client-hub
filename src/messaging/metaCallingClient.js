@@ -36,7 +36,7 @@ function buildCallActionBody(input = {}) {
   } else {
     body.call_id = normalizeCallId(input.callId);
   }
-  if (input.correlationId) body.biz_opaque_callback_data = String(input.correlationId);
+  if (input.correlationId && ['connect', 'accept', 'pre_accept'].includes(action)) body.biz_opaque_callback_data = String(input.correlationId);
   return body;
 }
 
