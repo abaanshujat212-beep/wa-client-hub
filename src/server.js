@@ -41,7 +41,7 @@ const { createServerTiming } = require("./serverTiming");
 
 const rootDir = path.resolve(__dirname, "..");
 const indexTemplate = fs.readFileSync(path.join(rootDir, "public", "index.html"), "utf8");
-const dashboardBundle = ["meta-signup.js", "customer-connections.js", "calling-setup.js", "meta-only-ui.js", "remote-desktop.js", "monitoring.js", "admin-summary.js", "client-self-service.js", "session-status.js", "billing-admin.js", "swich-admin.js", "whop-admin.js", "integrations.js", "crm-readiness.js", "setup-docs.js", "ghl-assignments.js"].map((file) => fs.readFileSync(path.join(rootDir, "public", file), "utf8")).join(";\n");
+const dashboardBundle = ["meta-signup.js", "customer-connections.js", "calling-audio.js", "calling-setup.js", "meta-only-ui.js", "remote-desktop.js", "monitoring.js", "admin-summary.js", "client-self-service.js", "session-status.js", "billing-admin.js", "swich-admin.js", "whop-admin.js", "integrations.js", "crm-readiness.js", "setup-docs.js", "ghl-assignments.js"].map((file) => fs.readFileSync(path.join(rootDir, "public", file), "utf8")).join(";\n");
 const app = express();
 const store = createStore(rootDir);
 const launcher = new BrowserLauncher(rootDir);

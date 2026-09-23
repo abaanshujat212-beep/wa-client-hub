@@ -28,7 +28,10 @@ Remote SDP is encrypted before durable webhook admission, then moved into the se
 
 ## Remaining integration and verification
 
-- Attach a browser WebRTC peer connection, microphone consent, device controls, polling and ringing UI to these endpoints. A ready API does not provide audible calls by itself.
+- Browser calling is wired through public/calling-audio.js and public/calling-setup.js. The dashboard and GHL settings Calls tab share this client and session history. Microphone capture starts only on Start/Answer; mute, playback and end controls are available. The operating system default audio devices are used.
+- GHL sessions are restricted to their installed location/workspace. Assigned agents can access only their assigned numbers; owner/admin access is retained. An embedding parent must allow microphone/autoplay; otherwise use the new-tab link.
+- Network-ambiguous actions retain their idempotency key for explicit status checks. A known call can be terminated even when connect/accept outcome is uncertain. Refresh cannot resume a lost WebRTC peer connection.
+- No TURN service is configured by default. Restrictive networks may need a managed TURN integration before production audio reliability can be claimed.
 - Test actual inbound and outbound audio, permission revocation, ICE/network behavior and remote hangup with an eligible real/test number. No simulated test result is a claim of production eligibility.
 - Add explicit supervised reassignment/reconciliation for orphaned claims or indefinite unknown connects. Do not clear them merely to redial.
 - Meta country/business eligibility checks still show unknown when the provider response does not supply evidence. App Review/coexistence approval is separate.

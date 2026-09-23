@@ -1,11 +1,11 @@
 const express = require('express');
-const { NumberCreationPolicy } = require('../db/numberCreationPolicy');
+const { callingConnections } = require('./metaCallingAccess');
 const { normalizeCallingReadiness } = require('./metaCallingReadiness');
 const { CredentialVault } = require('../security/credentialVault');
 const { MetaGraphClient } = require('./metaGraphClient');
 const { MetaCallingClient, MetaCallingError } = require('./metaCallingClient');
 const { MetaCallService } = require('./metaCallService');
-const { rateLimit } = require('express-rate-limit');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const { validCsrf, validateOrigin } = require('./metaSignupRoutes');
 
 function enabled(env = process.env) { return env.META_CALLING_ENABLED === 'true'; }
@@ -23,17 +23,17 @@ function createMetaCallingRouter({ enabled: isEnabled = false, env = process.env
   const pool = store.repository.pool;
   const service = new MetaCallService({pool,graph,calling,vault});
   router.use((_req,res,next)=>{res.set('Cache-Control','no-store');next();});
-  router.use(rateLimit({windowMs:60000,limit:120,standardHeaders:true,legacyHeaders:false}));
+  router.use(rateLimit({windowMs:60000,limit:120,keyGenerator:req=>req.session?.userId||ipKeyGenerator(req.ip),standardHeaders:true,legacyHeaders:false}));
   router.use(express.json({limit:'256kb',strict:true}));
   router.use((req,res,next)=>{if(req.method==='POST'&&(req.get('origin')!==origin||!validCsrf(req.session?.csrfToken,req.get('x-csrf-token'))))return res.status(403).json({error:'Security token or origin is invalid'});next();});
-  const authorization = new NumberCreationPolicy(pool);
+
 
   async function resolveTarget(req, res) {
     const user = req.session?.userId ? store.findUser(req.session.userId) : null;
     if (!user || !user.active) { res.status(401).json({ error: 'Please sign in' }); return null; }
     const workspaceId = String(req.body?.workspaceId || req.query.workspaceId || '').trim();
     const connectionId = String(req.params.connectionId || '').trim();
-    if (!workspaceId || !await authorization.canManageWorkspace(user, workspaceId) || !/^[0-9a-f-]{36}$/i.test(connectionId)) { res.status(404).json({ error: 'Meta connection not found' }); return null; }
+    if (!workspaceId || !(await callingConnections(pool,user.id,req.session)).some(c=>c.id===connectionId&&c.workspace_id===workspaceId) || !/^[0-9a-f-]{36}$/i.test(connectionId)) { res.status(404).json({ error: 'Meta connection not found' }); return null; }
     const result = await pool.query(`SELECT p.id,p.workspace_id,p.encrypted_credentials,p.encryption_key_id,
       a.waba_id,a.phone_number_id,n.id AS number_id
       FROM provider_connections p JOIN meta_connection_assets a
