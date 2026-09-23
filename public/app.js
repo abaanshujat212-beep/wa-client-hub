@@ -7,7 +7,7 @@ let dashboardScriptsPromise;
 function loadDashboardScripts() {
   if (!dashboardScriptsPromise) dashboardScriptsPromise = new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = "/dashboard.js?v=20260923-signup-layout-2";
+    script.src = "/dashboard.js?v=20260923-calls-heading-3";
     script.onload = () => { window.dispatchEvent(new Event("dashboard-ready")); resolve(); };
     script.onerror = () => { script.remove(); dashboardScriptsPromise = null; reject(new Error("Could not load dashboard. Please refresh and try again.")); };
     document.head.appendChild(script);
