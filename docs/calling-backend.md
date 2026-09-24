@@ -35,7 +35,7 @@ Remote SDP is encrypted before durable webhook admission, then moved into the se
 - Test actual inbound and outbound audio, permission revocation, ICE/network behavior and remote hangup with an eligible real/test number. No simulated test result is a claim of production eligibility.
 - Add explicit supervised reassignment/reconciliation for orphaned claims or indefinite unknown connects. Do not clear them merely to redial.
 - Meta country/business eligibility checks still show unknown when the provider response does not supply evidence. App Review/coexistence approval is separate.
-- Template-based permission requests use the existing template sender; this new endpoint only handles free-form requests.
+- Permission requests automatically use free-form messages inside the genuine 24-hour service window, and require a selected, currently approved call-permission template outside it. Named/positional body variables are validated; ordinary templates cannot substitute. Templates must already be approved by Meta.
 
 ## Sources
 
@@ -43,3 +43,13 @@ Remote SDP is encrypted before durable webhook admission, then moved into the se
 - https://developers.facebook.com/documentation/business-messaging/whatsapp/calling/user-initiated-calls/
 - https://developers.facebook.com/documentation/business-messaging/whatsapp/calling/user-call-permissions
 - https://developers.facebook.com/documentation/business-messaging/whatsapp/reference/whatsapp-business-phone-number/calling-api
+
+## Call controls and permission records
+
+Migration 033 adds an append-only permission history. Genuine incoming call_permission_reply messages record acceptance/rejection, temporary/permanent scope, the provider expiry, response source and timestamp. Imported history is excluded. Live API observations are labelled as observations rather than invented approval times; calling always checks live permission again. Run scripts/backfill-call-permissions.js after migrating to replay existing genuine replies without sending messages.
+
+The browser displays a floating call panel outside page navigation, with answer/reject, mute/end and compact pin controls. Incoming polling covers all numbers authorized to the current session, including GHL location restrictions. A browser tab must remain open; background push/native incoming calling is not part of this implementation.
+
+Readiness now includes dated webhook, incoming and accepted outgoing call evidence. Missing provider fields say Not reported by Meta. Historical success is not presented as permanent country or account eligibility.
+
+Template reference: https://developers.facebook.com/documentation/business-messaging/whatsapp/templates/utility-templates/utility-call-permission-request-templates/

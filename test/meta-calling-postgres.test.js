@@ -56,7 +56,7 @@ test('calling durable lifecycle, authorization, encrypted signaling, deduplicati
   timeout=true;const uncertainInput={...input,to:'923001234569'};
   response=await service.action(target,uncertainInput,'uncertain-12345678');assert.equal(response.state,'uncertain');const count=sent;
   await service.action(target,uncertainInput,'uncertain-12345678');assert.equal(sent,count);
-  await assert.rejects(()=>service.action(target,{action:'request_permission',to:'923001234567',text:'May we call you?'},'permission-12345678'),e=>e.code==='META_CALL_SERVICE_WINDOW_REQUIRED');
+  await assert.rejects(()=>service.action(target,{action:'request_permission',to:'923001234567',text:'May we call you?'},'permission-12345678'),e=>e.code==='META_CALL_TEMPLATE_REQUIRED');
   await pool.query("INSERT INTO suppressions(id,workspace_id,phone_e164,scope,reason) VALUES('s','w','+923001234560','workspace','opted out')");
   await assert.rejects(()=>service.action(target,{...input,to:'923001234560'},'suppressed-12345678'),e=>e.code==='META_CALL_RECIPIENT_SUPPRESSED');
   assert.equal((await pool.query('SELECT count(*)::int n FROM messages')).rows[0].n,0);
@@ -90,10 +90,33 @@ test('calling durable lifecycle, authorization, encrypted signaling, deduplicati
   assert.equal((await callingConnections(pool,'other',embedded)).length,0);
   await pool.query("UPDATE whatsapp_number_assignments SET removed_at=now() WHERE id='assignment'");
   assert.equal((await callingConnections(pool,'other')).length,0);
+  const {recordPermissionReply,permissionHistory}=require('../src/messaging/metaCallPermissions');
+  const permissionPayload={direction:'inbound',value:{message:{id:'wamid.grant',from:'923001234567',timestamp:String(now+10),interactive:{type:'call_permission_reply',call_permission_reply:{response:'accept',is_permanent:false,expiration_timestamp:String(now+86400),response_source:'user_action'}}}}};
+  const permissionAsset={workspace_id:'w',provider_connection_id:connection};
+  await recordPermissionReply(pool,permissionAsset,permissionPayload);await recordPermissionReply(pool,permissionAsset,permissionPayload);
+  let records=await permissionHistory(pool,target);assert.equal(records.filter(p=>p.external_event_id==='reply:wamid.grant').length,1);assert.equal(records[0].status,'temporary');assert.equal(records[0].expires_at.toISOString(),new Date((now+86400)*1000).toISOString());
+  await recordPermissionReply(pool,permissionAsset,{...permissionPayload,history:true,value:{message:{...permissionPayload.value.message,id:'wamid.import'}}});
+  assert.equal((await pool.query("SELECT count(*)::int n FROM meta_call_permissions WHERE external_event_id='reply:wamid.import'")).rows[0].n,0);
+  assert.equal((await permissionHistory(pool,{...target,workspaceId:'w2'})).length,0);
+  await pool.query("UPDATE meta_call_commands SET created_at=now()-interval '1 minute' WHERE action='request_permission'");
+  let sentTemplate;
+  const templateService=new MetaCallService({pool,vault,calling:{},graph:{request:async args=>{
+    if(args.method==='POST'){sentTemplate=args.body;return {messages:[{id:'wamid.permission-template'}]};}
+    if(args.path[1]==='message_templates')return {data:[{name:'call_help',language:'en_US',status:'APPROVED',category:'UTILITY',components:[{type:'BODY',text:'May we call about your order?'},{type:'CALL_PERMISSION_REQUEST'}]}]};
+    return {permission:{status:'no_permission'},actions:[{action_name:'send_call_permission_request',can_perform_action:true}]};
+  }}});
+  const templateInput={action:'request_permission',to:'923001234588',text:'May we call?',template:{name:'call_help',language:'en_US'}};
+  assert.equal((await templateService.action(target,templateInput,'template-request-1234')).state,'accepted');assert.equal(sentTemplate.type,'template');assert.equal(sentTemplate.template.name,'call_help');assert.equal(sentTemplate.interactive,undefined);
+  const saved=await templateService.action(target,templateInput,'template-request-1234');assert.equal(saved.result.mode,'template');
   const express=require('express');const app=express();const csrf='a'.repeat(64);
   app.use((req,_res,next)=>{req.session={userId:req.get('x-test-user')||'owner',csrfToken:csrf};next();});
   app.use('/api/:connectionId/calling',createMetaCallingRouter({enabled:true,env,origin:'https://example.invalid',store:{driver:'postgres',repository:{pool},findUser:id=>({id,active:true,role:'client'})},fetchImpl:async()=>{throw new Error('No live calls in tests');}}));
+  app.use('/directory',require('../src/messaging/metaCallingAccess').createCallingDirectoryRouter({pool,enabled:true}));
+  await repo.admit(wrap([{...offer,id:'wacid.popup',timestamp:Math.floor(Date.now()/1000)}]));await drain();
   server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));const base='http://127.0.0.1:'+server.address().port+'/api/'+connection+'/calling';
+  const directoryUrl='http://127.0.0.1:'+server.address().port+'/directory/incoming';
+  assert.equal((await (await fetch(directoryUrl)).json()).sessions.length,1);
+  assert.equal((await (await fetch(directoryUrl,{headers:{'x-test-user':'other'}})).json()).sessions.length,0);
   assert.equal((await fetch(base+'/sessions?workspaceId=w')).status,200);
   assert.equal((await fetch(base+'/sessions?workspaceId=w',{headers:{'x-test-user':'other'}})).status,404);
   assert.equal((await fetch(base+'/action',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({workspaceId:'w'})})).status,403);

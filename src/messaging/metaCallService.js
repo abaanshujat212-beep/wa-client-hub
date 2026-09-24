@@ -19,7 +19,11 @@ function permissionSummary(data, now=Date.now()) {
 class MetaCallService {
   constructor({pool,graph,calling,vault}) { Object.assign(this,{pool,graph,calling,vault}); }
   async permissions(target,to) {
-    return permissionSummary(await this.graph.request({path:[target.phoneNumberId,'call_permissions'],accessToken:target.accessToken,query:{user_wa_id:recipient(to)}}));
+    const observedAt=new Date(),number=recipient(to);
+    const summary=permissionSummary(await this.graph.request({path:[target.phoneNumberId,'call_permissions'],accessToken:target.accessToken,query:{user_wa_id:number}}));
+    const latest=(await this.pool.query('SELECT status,expires_at FROM meta_call_permissions WHERE provider_connection_id=$1 AND recipient=$2 ORDER BY occurred_at DESC,recorded_at DESC LIMIT 1',[target.connectionId,number])).rows[0];
+    if(!latest||latest.status!==summary.status||(latest.expires_at?.toISOString()||null)!==summary.expiresAt)await require('./metaCallPermissions').recordPermission(this.pool,target,{recipient:number,status:summary.status,expiresAt:summary.expiresAt,occurredAt:observedAt,source:'api',externalEventId:'api:'+crypto.randomUUID()});
+    return summary;
   }
   async sweep() {
     await this.pool.query("UPDATE meta_call_commands SET state='uncertain',error_code='META_CALL_INTERRUPTED',updated_at=now() WHERE state='sending' AND created_at<now()-interval '90 seconds'");
@@ -56,12 +60,13 @@ class MetaCallService {
     if (!/^[A-Za-z0-9_-]{16,128}$/.test(String(key||''))) fail('IDEMPOTENCY_KEY_REQUIRED','Provide a unique Idempotency-Key (16–128 letters, digits, _ or -)',400);
     const action = String(input.action||'').toLowerCase();
     const permissionRequest = action === 'request_permission';
-    const normalized = permissionRequest ? {action,to:recipient(input.to),text:String(input.text||'').trim()} : buildCallActionBody(input);
+    const normalized = permissionRequest ? {action,to:recipient(input.to),text:String(input.text||'').trim(),...(input.template?{template:require('./metaCallPermissionTemplates').normalizePermissionTemplate(input.template)}:{})} : buildCallActionBody(input);
     if (permissionRequest && (!normalized.text || normalized.text.length>1024)) fail('META_CALL_PERMISSION_TEXT_INVALID','Explain the call request in 1–1024 characters',400);
     const fingerprint=hash(normalized);
     await this.sweep();
     const previous=(await this.pool.query('SELECT * FROM meta_call_commands WHERE provider_connection_id=$1 AND idempotency_key=$2',[target.connectionId,key])).rows[0];
     if(previous){if(previous.request_hash!==fingerprint||previous.actor_id!==target.user.id)fail('IDEMPOTENCY_CONFLICT','This key belongs to another request');return this.response(previous);}
+    let permissionTemplate=null;
     if(action==='connect'||permissionRequest){
       const suppressed=await this.pool.query("SELECT 1 FROM suppressions WHERE phone_e164=$1 AND (scope='global' OR workspace_id=$2) LIMIT 1",['+'+normalized.to,target.workspaceId]);
       if(suppressed.rowCount)fail('META_CALL_RECIPIENT_SUPPRESSED','This recipient has opted out');
@@ -70,7 +75,7 @@ class MetaCallService {
       if(permissionRequest){
         const window=await this.pool.query(`SELECT 1 FROM messages m JOIN conversations c ON c.id=m.conversation_id JOIN contacts t ON t.id=c.contact_id
           WHERE m.workspace_id=$1 AND m.provider_connection_id=$2 AND t.phone_e164=$3 AND m.direction='inbound' AND COALESCE(m.metadata->>'history','false')<>'true' AND m.occurred_at>now()-interval '24 hours' LIMIT 1`,[target.workspaceId,target.connectionId,'+'+normalized.to]);
-        if(!window.rowCount)fail('META_CALL_SERVICE_WINDOW_REQUIRED','A recent customer message is required for a free-form permission request. Use an approved call-permission template outside the service window.');
+        if(!window.rowCount)permissionTemplate=await require('./metaCallPermissionTemplates').resolvePermissionTemplate(this.graph,target,normalized.template);
       }
     }
     const client=await this.pool.connect();let command,session;
@@ -102,7 +107,7 @@ class MetaCallService {
     } catch(error){await client.query('ROLLBACK');throw error;} finally{client.release();}
     let result;
     try {
-      if(permissionRequest)result=await this.graph.request({path:[target.phoneNumberId,'messages'],accessToken:target.accessToken,method:'POST',body:{messaging_product:'whatsapp',recipient_type:'individual',to:normalized.to,type:'interactive',interactive:{type:'call_permission_request',action:{name:'call_permission_request'},body:{text:normalized.text}}}});
+      if(permissionRequest)result=await this.graph.request({path:[target.phoneNumberId,'messages'],accessToken:target.accessToken,method:'POST',body:{messaging_product:'whatsapp',recipient_type:'individual',to:normalized.to,...(permissionTemplate?{type:'template',template:permissionTemplate}:{type:'interactive',interactive:{type:'call_permission_request',action:{name:'call_permission_request'},body:{text:normalized.text}}})}});
       else result=await this.calling.action({...input,phoneNumberId:target.phoneNumberId,accessToken:target.accessToken,correlationId:session.id});
       const externalId=result?.calls?.[0]?.id;
       if(action==='connect' && (typeof externalId!=='string'||!externalId||externalId.length>512))fail('META_CALL_RESPONSE_INVALID','Meta returned no call identifier',503);
@@ -118,10 +123,10 @@ class MetaCallService {
         }
         if(permissionRequest){
           const {MetaWebhookRepository}=require('./metaWebhookRepository');
-          await new MetaWebhookRepository(this.pool).persistMessage(tx,{id:command.id},{workspace_id:target.workspaceId,provider_connection_id:target.connectionId,number_id:target.numberId},{providerMessageId:result.messages[0].id,direction:'outbound',value:{message:{id:result.messages[0].id,to:normalized.to,timestamp:String(Math.floor(Date.now()/1000)),type:'interactive',interactive:{type:'call_permission_request'},text:{body:normalized.text}}}});
+          await new MetaWebhookRepository(this.pool).persistMessage(tx,{id:command.id},{workspace_id:target.workspaceId,provider_connection_id:target.connectionId,number_id:target.numberId},{providerMessageId:result.messages[0].id,direction:'outbound',value:{message:{id:result.messages[0].id,to:normalized.to,timestamp:String(Math.floor(Date.now()/1000)),type:'interactive',interactive:{type:'call_permission_request'},text:{body:permissionTemplate?'Call permission template: '+permissionTemplate.name:normalized.text},...(permissionTemplate?{template:permissionTemplate}:{})}}});
           await tx.query("UPDATE messages SET origin='crm',status=CASE WHEN status='sent' THEN 'accepted' ELSE status END,metadata=metadata||'{\"callPermissionRequest\":true}'::jsonb WHERE workspace_id=$1 AND provider_connection_id=$2 AND external_message_id=$3",[target.workspaceId,target.connectionId,result.messages[0].id]);
         }
-        const safeResult=permissionRequest?{messageId:result.messages[0].id}:action==='connect'?{callId:externalId}:{success:true};
+        const safeResult=permissionRequest?{messageId:result.messages[0].id,mode:permissionTemplate?'template':'free_form'}:action==='connect'?{callId:externalId}:{success:true};
         command=(await tx.query("UPDATE meta_call_commands SET state='accepted',result=$2,updated_at=now() WHERE id=$1 RETURNING *",[command.id,safeResult])).rows[0];
         await tx.query('COMMIT');
       } catch(error){await tx.query('ROLLBACK');throw error;}finally{tx.release();}

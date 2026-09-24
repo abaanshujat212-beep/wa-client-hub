@@ -19,6 +19,16 @@ function createCallingDirectoryRouter({pool,enabled=false}) {
     if(!req.session?.userId)return res.status(401).json({error:'Please sign in'});
     try{res.json({connections:await callingConnections(pool,req.session.userId,req.session),embedded:req.session.ghlEmbedded===true,userId:req.session.userId});}
     catch{res.status(503).json({error:'Calling connections unavailable'});}
+  });
+  router.get('/incoming',async(req,res)=>{
+    res.set('Cache-Control','no-store');
+    if(!enabled)return res.status(404).json({error:'Calling is not enabled'});
+    if(!req.session?.userId)return res.status(401).json({error:'Please sign in'});
+    try{
+      const allowed=await callingConnections(pool,req.session.userId,req.session);
+      const sessions=allowed.length?(await pool.query("SELECT id,provider_connection_id,direction,recipient,state,owner_user_id,external_call_id,created_at FROM meta_call_sessions WHERE provider_connection_id=ANY($1::text[]) AND direction='inbound' AND state='ringing' AND remote_expires_at>now() AND (owner_user_id IS NULL OR owner_user_id=$2) ORDER BY created_at DESC LIMIT 20",[allowed.map(c=>c.id),req.session.userId])).rows:[];
+      res.json({sessions});
+    }catch{res.status(503).json({error:'Incoming calls unavailable'});}
   });return router;
 }
 module.exports={callingConnections,createCallingDirectoryRouter};

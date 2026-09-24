@@ -55,13 +55,16 @@ function createMetaCallingRouter({ enabled: isEnabled = false, env = process.env
       let permissions = null;
       const recipient = String(req.query.recipient || '').replace(/\D/g, '');
       if (recipient) permissions = await graph.request({ path: [target.phoneNumberId, 'call_permissions'], accessToken: target.accessToken, query: { user_wa_id: recipient } });
-      return res.json({ connectionId: target.connectionId, wabaId: target.wabaId, phoneNumberId: target.phoneNumberId, settings, subscriptions, permissions, readiness: normalizeCallingReadiness({ settings, subscriptions }) });
+      const evidence=(await pool.query(`SELECT max(e.occurred_at) AS webhook_at,max(e.occurred_at) FILTER(WHERE s.direction='inbound' AND e.event='connect') AS inbound_at,max(e.occurred_at) FILTER(WHERE s.direction='outbound' AND e.event='accepted') AS outbound_at FROM meta_call_sessions s JOIN meta_call_session_events e ON e.session_id=s.id WHERE s.workspace_id=$1 AND s.provider_connection_id=$2`,[target.workspaceId,target.connectionId])).rows[0];
+      return res.json({ evidence, connectionId: target.connectionId, wabaId: target.wabaId, phoneNumberId: target.phoneNumberId, settings, subscriptions, permissions, readiness: normalizeCallingReadiness({ settings, subscriptions }) });
     } catch (error) {
       return res.status(error?.code === 'META_ERROR_190' || error?.providerStatus === 401 || error?.providerStatus === 403 ? 409 : 503).json({ error: error?.code === 'META_ERROR_190' ? 'The Meta access token has expired or is invalid. Update the connection token before checking calling.' : 'Meta Calling readiness is unavailable', code: error?.code || 'META_CALLING_READINESS_FAILED' });
     }
   });
 
   function endpoint(handler) { return async(req,res)=>{try {const target=await resolveTarget(req,res);if(!target)return;await handler(req,res,target);}catch(error){if(error instanceof MetaCallingError)return res.status(error.status||400).json({error:error.message,code:error.code});res.status(503).json({error:'Calling service unavailable',code:'META_CALL_SERVICE_UNAVAILABLE'});}}; }
+  router.get('/permissions/history',endpoint(async(req,res,target)=>res.json({permissions:await require('./metaCallPermissions').permissionHistory(pool,target)})));
+  router.get('/permissions/templates',endpoint(async(req,res,target)=>res.json({templates:await require('./metaCallPermissionTemplates').permissionTemplates(graph,target)})));
   router.get('/permissions',endpoint(async(req,res,target)=>res.json(await service.permissions(target,req.query.recipient))));
   router.get('/sessions',endpoint(async(req,res,target)=>res.json({sessions:await service.list(target)})));
   router.get('/sessions/:sessionId',endpoint(async(req,res,target)=>res.json(await service.detail(target,req.params.sessionId))));
