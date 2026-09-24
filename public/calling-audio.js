@@ -33,6 +33,10 @@
       }catch(error){this.close();throw error;}
     }
     async answer(sdp){if(this.pc&&!this.pc.currentRemoteDescription)await this.pc.setRemoteDescription({type:'answer',sdp});}
+    async output(deviceId){
+      if(typeof this.audio?.setSinkId!=='function')throw new Error('This browser uses the system audio route. Select a headset or Bluetooth device in your phone audio controls.');
+      await this.audio.setSinkId(deviceId);
+    }
     mute(value){this.stream?.getAudioTracks().forEach(t=>{t.enabled=!value;});}
     close(){this.generation++;this.cancelGather?.();this.pc?.close();this.pc=null;this.stream?.getTracks().forEach(t=>t.stop());this.stream=null;if(this.audio)this.audio.srcObject=null;}
   }

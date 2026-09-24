@@ -32,6 +32,11 @@ async function persistCallEvent(client, receipt, asset) {
   }
   const inserted = await client.query('INSERT INTO meta_call_session_events(id,session_id,receipt_id,event,occurred_at,error_code) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(receipt_id) DO NOTHING RETURNING id',[crypto.randomUUID(),row.id,receipt.id,p.event,new Date(p.timestamp*1000),p.errorCode]);
   if (!inserted.rowCount) return {duplicate:true,callId:row.id};
+  // Calls can arrive before any chat. Keep the canonical contact without
+  // inventing a name or treating a call as consent for campaign messages.
+  if (/^\d{8,15}$/.test(row.recipient)) await client.query(
+    'INSERT INTO contacts(id,workspace_id,phone_e164) VALUES($1,$2,$3) ON CONFLICT(workspace_id,phone_e164) DO NOTHING',
+    [crypto.randomUUID(),asset.workspace_id,'+'+row.recipient]);
   const next = {connect:row.direction==='inbound'?'ringing':'connecting',terminate:'terminated',ringing:'ringing',accepted:'accepted',rejected:'rejected',failed:'failed'}[p.event];
   const advance = !terminal.has(row.state) && (rank[next] >= (rank[row.state] ?? -1));
   const cipher = receipt.payload.value.encryptedSession;

@@ -3,7 +3,7 @@
   let csrf='', workspace='', connections=[], templates=[];
   const notice = text => { $('#notice').textContent=text; };
   async function api(path, body) { const r=await fetch(path,{credentials:'same-origin',headers:{'content-type':'application/json','x-csrf-token':csrf},...(body?{method:'POST',body:JSON.stringify(body)}:{})}); const data=await r.json(); if(!r.ok)throw new Error(data.error||'Request failed');return data; }
-  function tab(name){ if(!["numbers","templates","connection","calls"].includes(name))name="numbers"; history.replaceState(null,"","#"+name); document.querySelectorAll('main > section').forEach(el=>el.hidden=el.id!==name); document.querySelectorAll('[data-tab]').forEach(el=>el.setAttribute('aria-selected',String(el.dataset.tab===name))); if(name==='templates')run(loadTemplates); }
+  function tab(name){ if(!["numbers","templates","connection","calls","contacts"].includes(name))name="numbers"; history.replaceState(null,"","#"+name); document.querySelectorAll('main > section').forEach(el=>el.hidden=el.id!==name); document.querySelectorAll('[data-tab]').forEach(el=>el.setAttribute('aria-selected',String(el.dataset.tab===name))); if(name==='templates')run(loadTemplates); }
   async function run(fn){try{notice('');await fn();}catch(e){notice(e.message);}}
   const selected=()=>connections.find(c=>c.id===$('#templateNumber').value);
   function target(c){return {workspaceId:workspace,numberId:c.number.id};}

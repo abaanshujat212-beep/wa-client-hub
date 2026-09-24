@@ -52,6 +52,7 @@ serverModule.app.use('/api/meta/signup', metaSignup.router);
 serverModule.app.use('/api/meta/connections/:connectionId/templates', metaSignup.templatesRouter);
 serverModule.app.use('/api/meta/connections/:connectionId/media', metaSignup.mediaRouter);
 serverModule.app.use('/api/calling', require('./messaging/metaCallingAccess').createCallingDirectoryRouter({pool:serverModule.store.repository.pool,enabled:metaCallingEnabled(process.env)}));
+if (serverModule.store.driver === 'postgres') serverModule.app.use('/api/contacts', require('./messaging/contactDirectory').createContactDirectoryRouter({pool:serverModule.store.repository.pool}));
 const metaCalling = createMetaCallingRouter({ enabled: metaCallingEnabled(process.env), env: process.env, store: serverModule.store, origin: appOrigin });
 serverModule.app.use('/api/meta/connections/:connectionId/calling', metaCalling);
 serverModule.app.use('/api/meta/connections', metaSignup.connectionsRouter);
