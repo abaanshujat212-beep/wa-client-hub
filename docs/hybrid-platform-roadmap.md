@@ -252,3 +252,7 @@ Cross-cutting mobile scope is also tracked in [#24](https://github.com/abaanshuj
 11. Start iOS (#59) only after Android contracts and the pilot are stable.
 
 M7 production hardening applies continuously and remains the final release gate.
+## Current planning checkpoints
+
+- [Android mobile MVP plan](mobile-mvp-plan.md): approved scope, implementation sequence and acceptance matrix; GitHub epic #49.
+- [Meta review checkpoint, 5 October 2026](meta-review-checkpoint-2026-10-05.md): permission-specific outcome superseding the September pending status.
