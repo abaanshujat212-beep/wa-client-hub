@@ -50,3 +50,4 @@ body:not([data-dashboard-role='admin']) .admin-only{display:none!important}
 #metaSignupPanel .signup-actions { display:flex; flex-wrap:wrap; gap:10px; margin:18px 0 22px; }
 #metaSignupPanel .signup-actions .button { min-height:46px; padding:12px 22px; }
 @media(max-width:800px) { #metaSignupPanel .inline-form { grid-template-columns:1fr; } }
+.password-field{display:flex;align-items:center;gap:8px}.password-field input{flex:1}.password-toggle{border:0;background:transparent;color:#138b5b;font-weight:700;cursor:pointer;padding:8px}
