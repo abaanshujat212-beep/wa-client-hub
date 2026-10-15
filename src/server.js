@@ -105,7 +105,7 @@ function bootstrapPayload(req) { const user = req.session.userId && store.findUs
 function serveIndex(req, res, next) { if (!req.session.csrfToken) req.session.csrfToken = crypto.randomBytes(24).toString("hex"); req.session.save((error) => { if (error) return next(error); const encoded = JSON.stringify(bootstrapPayload(req)).replace(/</g, "\\u003c"); const body = Buffer.from(indexTemplate.replace("<!--SESSION_BOOTSTRAP-->", `<script>window.__SESSION_BOOTSTRAP__=${encoded};</script>`), "utf8"); res.status(200).set({ "Content-Type": "text/html; charset=utf-8", "Content-Length": String(body.length) }).end(body); }); }
 function decorateAccount(account) { const launchStatus = launcher.status(account); const sessionStatus = accountSessionStatus(account, launchStatus); return { ...account, ...launchStatus, sessionStatus, sessionStatusLabel: statusLabel(sessionStatus) }; }
 
-app.get("/api/bootstrap", (req, res) => { res.set("Cache-Control", "no-store"); res.json({ ...bootstrapPayload(req), csrfToken: req.session.csrfToken || createLoginCsrfToken() }); });
+app.get("/api/bootstrap", (req, res, next) => { res.set("Cache-Control", "no-store"); if (!req.session.csrfToken) req.session.csrfToken = crypto.randomBytes(24).toString("hex"); req.session.save(error => { if (error) return next(error); res.json(bootstrapPayload(req)); }); });
 // Embedded bootstrap authenticates encrypted HighLevel context and checks its
 // Origin in its own handler; no session CSRF token exists before this exchange.
 app.use((req, res, next) => req.method === 'POST' && req.path === '/api/ghl/embedded/session' ? next() : csrf(req, res, next));
