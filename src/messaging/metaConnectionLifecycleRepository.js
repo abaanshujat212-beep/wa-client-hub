@@ -92,5 +92,20 @@ class MetaConnectionLifecycleRepository {
     } catch (error) { await client.query('ROLLBACK'); throw error; }
     finally { client.release(); }
   }
+
+  async disconnect({ actorId, workspaceId, connectionId }) {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query(`UPDATE provider_connections p SET status='revoked', encrypted_credentials=NULL, updated_at=clock_timestamp() FROM users u WHERE u.id=$1 AND p.id=$3 AND p.workspace_id=$2 AND p.provider='whatsapp_cloud' AND ${managerPredicate} RETURNING p.id`, [actorId, workspaceId, connectionId]);
+      if (!result.rowCount) throw new MetaLifecycleError('Meta connection not found', 'META_CONNECTION_NOT_FOUND');
+      await client.query(`UPDATE meta_connection_assets SET token_status='revoked', disconnected_at=COALESCE(disconnected_at,clock_timestamp()), updated_at=clock_timestamp() WHERE provider_connection_id=$1 AND workspace_id=$2`, [connectionId, workspaceId]);
+      await client.query(`UPDATE whatsapp_numbers SET automation_enabled=false WHERE provider_connection_id=$1 AND workspace_id=$2`, [connectionId, workspaceId]);
+      await client.query(`INSERT INTO audit_logs(id,user_id,action,details) VALUES($1,$2,'meta.connection.disconnected',$3)`, [crypto.randomUUID(), actorId, { workspaceId, connectionId }]);
+      await client.query('COMMIT');
+      return { id: connectionId, workspaceId, status: 'revoked', disconnected: true, automationEnabled: false };
+    } catch (error) { await client.query('ROLLBACK'); throw error; }
+    finally { client.release(); }
+  }
 }
 module.exports = { MetaConnectionLifecycleRepository, MetaLifecycleError, safeRow };

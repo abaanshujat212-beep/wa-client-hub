@@ -1,0 +1,3 @@
+import {API_BASE_URL} from '../config';
+import {readAccessToken} from '../auth/tokenStore';
+export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> { const token = await readAccessToken(); const response = await fetch(`${API_BASE_URL}${path}`, {...init, headers: {'Content-Type': 'application/json', ...(token ? {Authorization: `Bearer ${token}`} : {}), ...(init.headers || {})}}); const body = await response.json().catch(() => ({})); if (response.status === 401) throw new Error('Session expired. Please sign in again.'); if (!response.ok) throw new Error(body.error || `Request failed (${response.status})`); return body as T; }

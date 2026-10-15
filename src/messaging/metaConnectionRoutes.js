@@ -54,6 +54,11 @@ function createMetaConnectionRouter({ enabled = false, pool, repository, diagnos
     try { res.json(await repository.activate({ actorId: req.user.id, workspaceId: req.body.workspaceId, connectionId: req.params.connectionId })); }
     catch (error) { const mapped = lifecycleError(error); res.status(mapped.status).json(mapped.body); }
   });
+  router.post('/:connectionId/disconnect', writeGuard, express.json({ limit: '2kb', strict: true }), async (req, res) => {
+    if (!validScope(req.body) || !/^[0-9a-f-]{36}$/i.test(req.params.connectionId)) return res.status(400).json({ error: 'Valid connection scope is required' });
+    try { res.json(await repository.disconnect({ actorId: req.user.id, workspaceId: req.body.workspaceId, connectionId: req.params.connectionId })); }
+    catch (error) { const mapped = lifecycleError(error); res.status(mapped.status).json(mapped.body); }
+  });
   router.use((_req, res) => res.status(404).json({ error: 'Not found' }));
   router.use((error, _req, res, _next) => { const large = error?.type === 'entity.too.large'; res.status(large ? 413 : 400).json({ error: large ? 'Meta connection request is too large' : 'Invalid Meta connection request' }); });
   return router;

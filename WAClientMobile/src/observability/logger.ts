@@ -1,0 +1,1 @@
+export function reportMobileError(error: unknown, context: Record<string, string> = {}) { const message = error instanceof Error ? error.message : String(error); if (__DEV__) console.warn('[WA Client Hub]', message, context); }

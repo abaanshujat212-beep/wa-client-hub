@@ -31,3 +31,9 @@ backup*/
 Thumbs.db
 .vscode/
 .idea/
+
+# Local mobile toolchains and generated build output
+.android/
+.gradle/
+WAClientMobile/node_modules/
+.codex-remote-attachments/

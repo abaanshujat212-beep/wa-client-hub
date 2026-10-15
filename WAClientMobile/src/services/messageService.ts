@@ -1,0 +1,3 @@
+import {apiRequest} from '../api/authenticatedClient';
+export const sendTextMessage = (conversationId: string, body: string, idempotencyKey: string) => apiRequest<{message: unknown}>(`/api/inbox/conversations/${encodeURIComponent(conversationId)}/messages`, {method: 'POST', headers: {'Idempotency-Key': idempotencyKey}, body: JSON.stringify({type: 'text', body})});
+export const sendTemplateMessage = (conversationId: string, templateName: string, parameters: string[], idempotencyKey: string) => apiRequest<{message: unknown}>(`/api/inbox/conversations/${encodeURIComponent(conversationId)}/messages`, {method: 'POST', headers: {'Idempotency-Key': idempotencyKey}, body: JSON.stringify({type: 'template', templateName, parameters})});
