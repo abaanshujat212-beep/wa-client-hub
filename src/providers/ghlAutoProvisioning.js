@@ -71,18 +71,13 @@ class GhlProvisioningService {
       const linked = await client.query('SELECT u.*,x.email AS external_email FROM ghl_external_users x JOIN users u ON u.id=x.user_id WHERE x.location_id=$1 AND x.ghl_user_id=$2 FOR UPDATE', [identity.locationId, identity.ghlUserId]);
       user = linked.rows[0] || null;
     }
-    if (!user && identity.email) {
-      const existing = await client.query('SELECT * FROM users WHERE lower(email)=lower($1) FOR UPDATE', [identity.email]);
-      user = existing.rows[0] || null;
-      if (user && identity.ghlUserId) {
-        const conflicting = await client.query('SELECT 1 FROM ghl_external_users WHERE location_id=$1 AND ghl_user_id<>$2 AND user_id=$3 LIMIT 1', [identity.locationId, identity.ghlUserId, user.id]);
-        if (conflicting.rowCount) throw Object.assign(new Error('Verified HighLevel identity conflicts with an existing external account link'), { code: 'GHL_IDENTITY_CONFLICT', status: 409 });
-      }
-    }
+    // Email is an attribute, not proof of ownership. Only an existing verified
+    // GHL identity link or an explicitly correlated Hub user may be reused.
     if (!user && fallbackUserId) {
       const fallback = await client.query('SELECT * FROM users WHERE id=$1 AND active=true FOR UPDATE', [fallbackUserId]);
       user = fallback.rows[0] || null;
     }
+    if (user?.role === 'admin') throw Object.assign(new Error('HighLevel identities cannot be linked to a platform administrator'), { code: 'GHL_ADMIN_LINK_FORBIDDEN', status: 409 });
     if (!user) {
       const placeholder = await this.bcrypt.hash(crypto.randomBytes(32).toString('base64url'), 12);
       const result = await client.query('INSERT INTO users(id,name,email,password_hash,role,active,password_activation_required) VALUES($1,$2,$3,$4,\'client\',true,true) RETURNING *', [crypto.randomUUID(), String(identity.email || `GHL user ${identity.ghlUserId}`).slice(0, 120), identity.email || `ghl-${crypto.createHash('sha256').update(`${identity.locationId}:${identity.ghlUserId}`).digest('hex').slice(0, 24)}@activation.invalid`, placeholder]);

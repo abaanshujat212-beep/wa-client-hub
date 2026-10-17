@@ -42,7 +42,7 @@ function createGhlTeamRouter({ pool, store, runtime, fetchImpl = fetch }) {
       await client.query('SELECT id FROM workspaces WHERE id=$1 FOR UPDATE',[i.workspace_id]);
       for(const remote of users){
         if(typeof remote.id!=='string'||!remote.id)throw new Error('HighLevel user identity missing.');
-        const identity={ghlUserId:remote.id,locationId:i.location_id,companyId:i.company_id,email:remote.email||null};
+        const identity={ghlUserId:remote.id,locationId:i.location_id,companyId:i.company_id,email:null};
         const user=await provisioning.ensureUser(client,identity,null);
         const name=[remote.firstName,remote.lastName].filter(Boolean).join(' ').trim();
         if(name)await client.query('UPDATE users SET name=$2 WHERE id=$1',[user.id,name.slice(0,120)]);

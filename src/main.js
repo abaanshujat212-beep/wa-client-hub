@@ -40,7 +40,21 @@ const ghlTriggers = ghl.enabled ? require('./providers/ghlWorkflowTriggers').cre
 if (ghlTriggers) prependExactRouter(serverModule.app, '/webhooks/ghl/workflow-subscription', ghlTriggers.router);
 const ghlSync = ghl.enabled ? new GhlMessageSync({pool:serverModule.store.repository.pool,runtime:ghl}) : null;
 const ghlInbound = null;
-const inbound = null;
+const { isOptOut } = require('./campaigns/policy');
+const inbound = async ({ workspaceId, canonicalMessageId }) => {
+  if (serverModule.store.driver !== 'postgres' || !canonicalMessageId) return;
+  const pool = serverModule.store.repository.pool;
+  const row = (await pool.query(`SELECT m.body,m.direction,c.id AS contact_id,c.phone_e164 FROM messages m JOIN conversations v ON v.id=m.conversation_id JOIN contacts c ON c.id=v.contact_id WHERE m.id=$1 AND m.workspace_id=$2`, [canonicalMessageId, workspaceId])).rows[0];
+  if (!row || row.direction !== 'inbound') return;
+  const text = String(row.body || '').trim().toLowerCase();
+  if (isOptOut(text) || ['stopall','remove me','do not contact','unsubscribe me'].includes(text)) {
+    await pool.query(`INSERT INTO suppressions(id,workspace_id,contact_id,phone_e164,scope,reason) VALUES(gen_random_uuid(),$1,$2,$3,'workspace','customer_opt_out') ON CONFLICT DO NOTHING`, [workspaceId, row.contact_id, row.phone_e164]);
+    await pool.query(`INSERT INTO consent_records(id,workspace_id,contact_id,purpose,channel,status,source,policy_version,evidence,captured_at) VALUES(gen_random_uuid(),$1,$2,'campaign','whatsapp','revoked','whatsapp_inbound','meta-v1',$3,now())`, [workspaceId, row.contact_id, { keyword: text, messageId: canonicalMessageId }]);
+  } else if (['start','unstop','subscribe','optin','opt in'].includes(text)) {
+    await pool.query(`DELETE FROM suppressions WHERE phone_e164=$1 AND (scope='global' OR workspace_id=$2)`, [row.phone_e164, workspaceId]);
+    await pool.query(`INSERT INTO consent_records(id,workspace_id,contact_id,purpose,channel,status,source,policy_version,evidence,captured_at) VALUES(gen_random_uuid(),$1,$2,'campaign','whatsapp','granted','whatsapp_inbound','meta-v1',$3,now())`, [workspaceId, row.contact_id, { keyword: text, messageId: canonicalMessageId }]);
+  }
+};
 const ghlCalls = createGhlCallRouter({ enabled: ghlCallingEnabled(process.env), pool: serverModule.store.repository.pool, publicKey: process.env.GHL_PUBLIC_KEY });
 prependExactRouter(serverModule.app, '/webhooks/ghl/calls', ghlCalls);
 const metaWebhook = createMetaWebhookRuntime({ env: process.env, store: serverModule.store, onInboundMessage: inbound });

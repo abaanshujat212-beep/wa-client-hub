@@ -1,7 +1,7 @@
 name: wa-client-hub
 
 x-app-environment: &app-environment
-  NODE_ENV: ${NODE_ENV:-development}
+  NODE_ENV: ${NODE_ENV:-production}
   PORT: 3131
   STORE_DRIVER: postgres
   DATABASE_HOST: postgres

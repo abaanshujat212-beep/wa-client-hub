@@ -71,10 +71,13 @@ class MetaGraphClient {
         const error = classify(response.status);
         if (Number.isSafeInteger(payload?.error?.code)) { error.code = `META_ERROR_${payload.error.code}`; error.message = `Meta rejected the request (${payload.error.code})`; }
         if (Number(payload?.error?.code) === 133010) error.code = 'META_ACCOUNT_NOT_REGISTERED';
-        if (!error.retryable || attempt >= this.maxRetries) throw error;
+        // A POST to /messages may have reached Meta before a timeout. Retrying
+        // it can deliver the same WhatsApp message twice; callers must reconcile
+        // the attempt instead of blindly replaying it.
+        if (method.toUpperCase() === 'POST' || !error.retryable || attempt >= this.maxRetries) throw error;
       } catch (error) {
         const safe = error instanceof MetaGraphError ? error : new MetaGraphError(error?.name === 'AbortError' ? 'META_TIMEOUT' : 'META_NETWORK_ERROR', { retryable: true });
-        if (!safe.retryable || attempt >= this.maxRetries) throw safe;
+        if (method.toUpperCase() === 'POST' || !safe.retryable || attempt >= this.maxRetries) throw safe;
       } finally { clearTimeout(timer); }
       await this.sleep(Math.min(2000, 250 * (2 ** attempt)));
     }

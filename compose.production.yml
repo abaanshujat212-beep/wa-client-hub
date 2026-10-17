@@ -3,6 +3,7 @@ services:
     image: ${APP_IMAGE:?Set APP_IMAGE to the immutable production image tag}
     build: !reset null
     environment:
+      NODE_ENV: "production"
       COOKIE_SECURE: "true"
     ports:
       - "127.0.0.1:${APP_PORT:-3131}:3131"
