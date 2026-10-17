@@ -1,5 +1,6 @@
 const express = require("express");
 const { swichConfig, getSwichAccessToken, createSwichCardPayment, inquireSwichPayment } = require("./swich");
+const crypto = require("node:crypto");
 
 function createSwichRouter({ store }) {
   const router = express.Router();
@@ -46,7 +47,9 @@ function createSwichRouter({ store }) {
   });
 
   router.post("/webhook", async (req, res) => {
-    // TODO: verify Swich webhook signature once merchant dashboard payload is confirmed.
+    const secret = swichConfig().webhookSecret;
+    const supplied = String(req.get("x-swich-webhook-secret") || req.get("x-webhook-secret") || "");
+    if (!secret || supplied.length !== secret.length || !crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(secret))) return res.status(401).json({ error: "Webhook authentication failed" });
     await store.addAudit("system", "billing.swich.webhook.received", { received: true });
     res.json({ ok: true });
   });

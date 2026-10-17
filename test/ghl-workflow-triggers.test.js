@@ -14,9 +14,9 @@ test('subscription auth and installed location are checked before mutation',asyn
  let queries=0;const env={GHL_WORKFLOW_SECRET:'secret'};const s=createWorkflowTriggers({env,pool:{query:async()=>{queries++;return{rowCount:0}}}});
  const b={extras:{locationId:'location',workflowId:'workflow'},meta:{key:'tenx_wa_message_received'},triggerData:{id:'trigger',key:'tenx_wa_message_received',eventType:'CREATED',filters:[],targetUrl:'https://services.leadconnectorhq.com/workflows-marketplace/triggers/execute/location/trigger'}};
  await assert.rejects(s.subscribe(b,'wrong'),{code:'WORKFLOW_UNAUTHORIZED'});assert.equal(queries,0);
- await assert.rejects(s.subscribe(b,locationToken('marketplace-app',env)),{code:'LOCATION_NOT_INSTALLED'});assert.equal(queries,1);
+ await assert.rejects(s.subscribe(b,locationToken('location',env)),{code:'LOCATION_NOT_INSTALLED'});assert.equal(queries,1);
 });
 test('delete disables subscription without requiring target URL',async()=>{
  const queries=[],env={GHL_WORKFLOW_SECRET:'secret'};const s=createWorkflowTriggers({env,pool:{query:async(sql)=>{queries.push(sql);return{rowCount:1}}}});
- await s.subscribe({extras:{locationId:'location',workflowId:'workflow'},meta:{key:'tenx_wa_message_received'},triggerData:{id:'trigger',key:'tenx_wa_message_received',eventType:'DELETED'}},locationToken('marketplace-app',env));assert.match(queries[1],/active=false/);
+ await s.subscribe({extras:{locationId:'location',workflowId:'workflow'},meta:{key:'tenx_wa_message_received'},triggerData:{id:'trigger',key:'tenx_wa_message_received',eventType:'DELETED'}},locationToken('location',env));assert.match(queries[1],/active=false/);
 });

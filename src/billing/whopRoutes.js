@@ -1,5 +1,6 @@
 const express = require("express");
 const { whopConfig, assertWhopConfigured, getWhopMembership, mapWhopStatus } = require("./whop");
+const crypto = require("node:crypto");
 
 function createWhopRouter({ store }) {
   const router = express.Router();
@@ -27,7 +28,9 @@ function createWhopRouter({ store }) {
   });
 
   router.post("/webhook", async (req, res) => {
-    // TODO: verify Whop webhook signature after live payload/header confirmation.
+    const secret = whopConfig().webhookSecret;
+    const supplied = String(req.get("x-whop-webhook-secret") || req.get("x-webhook-secret") || "");
+    if (!secret || supplied.length !== secret.length || !crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(secret))) return res.status(401).json({ error: "Webhook authentication failed" });
     const status = req.body?.status || req.body?.data?.status;
     const workspaceId = req.body?.metadata?.workspaceId || req.body?.data?.metadata?.workspaceId;
     if (workspaceId && status) {

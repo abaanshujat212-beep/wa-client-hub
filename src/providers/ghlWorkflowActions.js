@@ -15,10 +15,8 @@ function locationToken(locationId, env = process.env) {
 function authenticate(locationId, token, env) {
   if (!/^[A-Za-z0-9_-]{1,100}$/.test(locationId || '')) throw fail('LOCATION_REQUIRED');
   const supplied = Buffer.from(String(token || ''));
-  const valid = [locationToken(locationId, env), locationToken('marketplace-app', env)].some(value => {
-    const expected = Buffer.from(value);
-    return expected.length === supplied.length && crypto.timingSafeEqual(expected, supplied);
-  });
+  const expected = Buffer.from(locationToken(locationId, env));
+  const valid = expected.length === supplied.length && crypto.timingSafeEqual(expected, supplied);
   if (!valid) throw fail('WORKFLOW_UNAUTHORIZED', 401);
 }
 function parseAction(payload) {

@@ -24,7 +24,7 @@ class CampaignRepository {
         const contactId = crypto.randomUUID();
         await client.query(`INSERT INTO contacts(id,workspace_id,phone_e164,display_name) VALUES($1,$2,$3,$4) ON CONFLICT(workspace_id,phone_e164) DO UPDATE SET display_name=COALESCE(NULLIF(EXCLUDED.display_name,''),contacts.display_name)`, [contactId, workspaceId, input.phone, input.name || null]);
         const contact = await client.query('SELECT id,phone_e164,display_name FROM contacts WHERE workspace_id=$1 AND phone_e164=$2', [workspaceId, input.phone]);
-        await client.query(`INSERT INTO consent_records(id,workspace_id,contact_id,purpose,status,source,policy_version,evidence,captured_at) VALUES($1,$2,$3,'campaign','granted',$4,$5,$6,$7)`, [crypto.randomUUID(), workspaceId, contact.rows[0].id, input.consentSource, input.policyVersion, { importEvidence: input.evidence || null }, input.consentCapturedAt]);
+        await client.query(`INSERT INTO consent_records(id,workspace_id,contact_id,purpose,channel,status,source,policy_version,evidence,captured_at) VALUES($1,$2,$3,'campaign','whatsapp','granted',$4,$5,$6,$7)`, [crypto.randomUUID(), workspaceId, contact.rows[0].id, input.consentSource, input.policyVersion, { importEvidence: input.evidence || null }, input.consentCapturedAt]);
         const blocked = await client.query(`SELECT 1 FROM suppressions WHERE phone_e164=$1 AND (scope='global' OR workspace_id=$2) LIMIT 1`, [input.phone, workspaceId]);
         const status = blocked.rowCount ? 'suppressed' : 'pending';
         if (blocked.rowCount) rejected += 1; else accepted += 1;
@@ -50,6 +50,8 @@ class CampaignRepository {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
+      await client.query("UPDATE campaign_recipients SET status='pending',last_error='worker_recovered_stuck_processing',next_attempt_at=now(),updated_at=now() WHERE status='processing' AND updated_at < now()-interval '15 minutes' AND attempt_count < 4");
+      await client.query("UPDATE campaign_recipients SET status='dead_letter',last_error='worker_stuck_attempt_limit',updated_at=now() WHERE status='processing' AND updated_at < now()-interval '15 minutes' AND attempt_count >= 4");
       await client.query("UPDATE campaigns SET status='running',updated_at=now() WHERE status='scheduled' AND scheduled_at<=now()");
       const result = await client.query(`SELECT cr.*,c.whatsapp_number_id,c.status AS campaign_status,c.quiet_start,c.quiet_end,ct.phone_e164,ct.display_name FROM campaign_recipients cr JOIN campaigns c ON c.id=cr.campaign_id JOIN contacts ct ON ct.id=cr.contact_id AND ct.workspace_id=cr.workspace_id WHERE cr.status='pending' AND cr.next_attempt_at<=now() AND c.status='running' AND (c.scheduled_at IS NULL OR c.scheduled_at<=now()) ORDER BY cr.next_attempt_at,cr.created_at FOR UPDATE OF cr SKIP LOCKED LIMIT 1`);
       if (!result.rowCount) { await client.query('COMMIT'); return null; }
