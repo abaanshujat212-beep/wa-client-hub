@@ -6,6 +6,9 @@ function validateSecurityConfig(env = process.env) {
   if (production && sessionSecret.length < 32) issues.push("SESSION_SECRET must be at least 32 characters in production");
   if (production && sessionSecret.includes("replace-with") || production && sessionSecret.includes("development-only")) issues.push("SESSION_SECRET must be unique and not the example value");
   if (production && env.COOKIE_SECURE !== "true") issues.push("COOKIE_SECURE=true is required in production");
+  if (production && (!env.ADMIN_PASSWORD || String(env.ADMIN_PASSWORD).length < 16 || /change[-_]?me|example|password/i.test(String(env.ADMIN_PASSWORD)))) issues.push("ADMIN_PASSWORD must be a strong non-example value in production");
+  if (production && /change[-_]?me|example/i.test(String(env.OPENWA_API_KEY || ""))) issues.push("OPENWA_API_KEY must not use an example value in production");
+  if (production && /change[-_]?me|example/i.test(String(env.OPENWA_WEBHOOK_SECRET || ""))) issues.push("OPENWA_WEBHOOK_SECRET must not use an example value in production");
   if (production && env.REMOTE_DESKTOP_URL && !env.REMOTE_DESKTOP_URL.startsWith("https://")) issues.push("REMOTE_DESKTOP_URL must use HTTPS in production");
 
   return issues;

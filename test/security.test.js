@@ -23,5 +23,5 @@ test("security config requires https remote desktop url in production", () => {
 });
 
 test("security config passes strong production setup", () => {
-  assert.doesNotThrow(() => assertSecurityConfig({ NODE_ENV: "production", SESSION_SECRET: "a-secure-random-secret-longer-than-32-characters", COOKIE_SECURE: "true", REMOTE_DESKTOP_URL: "https://rdp.example.com" }));
+  assert.doesNotThrow(() => assertSecurityConfig({ NODE_ENV: "production", SESSION_SECRET: "a-secure-random-secret-longer-than-32-characters", COOKIE_SECURE: "true", ADMIN_PASSWORD: "VioletRiver9!qZ3mL8", REMOTE_DESKTOP_URL: "https://rdp.example.com" }));
 });
